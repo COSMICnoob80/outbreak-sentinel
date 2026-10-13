@@ -2,11 +2,36 @@
 
 **Purpose:** single source of truth to resume work cold. Read this first in any new session.
 
-- Updated: 2026-10-11
-- Repo: `~/telegraph-hackathon/outbreak-sentinel/` (local, not pushed)
+- Updated: 2026-10-13
+- Repo: `~/telegraph-hackathon/outbreak-sentinel/` (local, git initialized; initial impl committed eccb542)
 - Type: Bio-surveillance early-warning agent
-- Stack: Python, Groq LLM, cron-based
-- Status: **Core agent building (subagent dispatched 2026-10-11)**
+- Stack: Python, Groq LLM (free tier), cron-based
+- Status: **Core agent built + committed; studio team scaffolded 2026-10-13**
+
+---
+
+## 📊 CURRENT STATE (2026-10-13)
+
+### Implementation (committed eccb542)
+- `outbreak_sentinel.py` (507 lines) — signal fusion agent
+- `app.py` (200 lines) — FastAPI dashboard
+- `config.yaml`, `requirements.txt`, `Procfile`, `railway.json` — Railway deploy
+- `.gitignore` — `.env` excluded (NEVER commit the Groq key)
+- One manual run logged (sentinel.log, 2026-10-13 12:00)
+
+### Studio Team (2026-10-13)
+`AGENTS.md` router + 5 personas in `agents/`:
+- **Director** — scope/deadlines/SPINE (mission: AWS Agentic AI hackathon, Oct 28)
+- **Signal Architect** — fusion logic, calibration, false-positive budget
+- **Data Scout** — signal sources + verification
+- **Platform Engineer** — FastAPI/Railway/Oracle, $0 budget
+- **Domain Guard** — medical red lines, no advice/no panic
+
+### Hackathon Vector (decided 2026-10-13)
+- **Primary: AWS CDS Agentic AI Partner (lablab.ai, Sep 14–Oct 28, $40K)**
+- Fallback: CodeTheCure (Devpost, Oct 10–28)
+- Why: the moat is agentic orchestration (the studio-team pattern itself is
+  the demo), not the health domain
 
 ---
 
