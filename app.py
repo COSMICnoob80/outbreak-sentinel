@@ -14,6 +14,8 @@ import feedparser
 import yaml
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
+from receipts import ReceiptStore, make_receipt
+from publish import publish_cards
 
 app = FastAPI(title="Outbreak Sentinel", version="1.0.0")
 
@@ -190,6 +192,37 @@ async def get_risk(city: Optional[str] = None, disease: str = "dengue"):
         signals={"news": len(news), "social": len(social), "cities": len(weather)},
         risk_cards=cards,
     )
+
+LEDGER_PATH = os.path.join(os.path.dirname(__file__), "history", "receipts.jsonl")
+STORE = ReceiptStore(LEDGER_PATH)
+
+
+@app.get("/receipts")
+def list_receipts(status: Optional[str] = None):
+    items = STORE.all()
+    if status:
+        items = [r for r in items if r.get("status") == status.upper()]
+    return {"count": len(items), "receipts": items}
+
+
+@app.get("/receipts/{receipt_id}")
+def get_receipt(receipt_id: str):
+    r = STORE.get(receipt_id)
+    if not r:
+        raise HTTPException(status_code=404, detail="receipt not found")
+    return r
+
+
+@app.get("/scoreboard")
+def scoreboard():
+    resolved = [r for r in STORE.all() if r.get("status") == "RESOLVED"]
+    verdicts: dict[str, int] = {}
+    for r in resolved:
+        v = r["resolution"]["verdict"]
+        verdicts[v] = verdicts.get(v, 0) + 1
+    return {"total_receipts": STORE.count(), "resolved": len(resolved),
+            "verdicts": verdicts}
+
 
 @app.get("/cities")
 def list_cities():

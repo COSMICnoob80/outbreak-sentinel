@@ -1,0 +1,2 @@
+{"city": "Karachi", "content_hash": "sha256:9575593f78c65a03e1ae17b5c1013cf5f32fd948b0f26fe3f1c44fd9450d57e1", "disease": "dengue", "drivers": ["News uptick: 17 articles in 24h"], "issued_at": "2026-10-13T20:02:13+05:00", "receipt_id": "rcpt-9575593f78c6", "risk_level": "CRITICAL", "score": 78, "status": "OPEN"}
+{"_event": "resolve", "receipt_id": "rcpt-9575593f78c6", "resolution": {"source": "DGHS Pakistan weekly bulletin 2026-11-07", "verdict": "CONFIRMED"}}
