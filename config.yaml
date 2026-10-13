@@ -1,0 +1,63 @@
+# Outbreak Sentinel Configuration
+
+# Cities to monitor (Pakistan)
+cities:
+  - name: Karachi
+    lat: 24.8607
+    lon: 67.0011
+  - name: Lahore
+    lat: 31.5204
+    lon: 74.3587
+  - name: Islamabad
+    lat: 33.6844
+    lon: 73.0479
+  - name: Peshawar
+    lat: 34.0151
+    lon: 71.5249
+  - name: Quetta
+    lat: 30.1798
+    lon: 66.9750
+
+# Diseases to track
+diseases:
+  - dengue
+  - malaria
+  - cholera
+  - typhoid
+  - hepatitis
+
+# News search keywords (fetched via Google News RSS)
+news_keywords:
+  - "dengue outbreak"
+  - "malaria cases"
+  - "cholera"
+  - "typhoid"
+  - "hepatitis"
+  - "fever outbreak"
+  - "hospital patients"
+
+# Social/sentiment keywords (fetched via Google News RSS as proxy)
+social_keywords:
+  - "dengue symptoms"
+  - "malaria symptoms"
+  - "fever"
+  - "sick"
+  - "hospital overflow"
+  - "patients"
+
+# Risk thresholds for rule-based scoring (used as fallback)
+thresholds:
+  news_high: 10        # articles in lookback window
+  news_medium: 5
+  sentiment_high: 0.6  # 0-1 panic score
+  sentiment_medium: 0.3
+  temp_high: 35.0      # °C
+  rain_high: 50.0      # mm
+
+# Groq LLM settings
+groq:
+  model: "rule-based"
+  api_key_env: "GROQ_API_KEY"   # Name of env var holding the API key
+
+# Lookback window in hours
+lookback_hours: 24

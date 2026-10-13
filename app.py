@@ -1,0 +1,200 @@
+"""
+Outbreak Sentinel — Telegraph Season II Service
+Machine-consumable outbreak risk intelligence API.
+"""
+import asyncio
+import json
+import os
+import re
+from datetime import datetime, timedelta, timezone
+from typing import Optional
+
+import aiohttp
+import feedparser
+import yaml
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel
+
+app = FastAPI(title="Outbreak Sentinel", version="1.0.0")
+
+# ── Config ─────────────────────────────────────────────────────────────
+
+def load_config(path: str = "config.yaml") -> dict:
+    config_path = os.path.join(os.path.dirname(__file__), path)
+    defaults = {
+        "cities": [
+            {"name": "Karachi", "lat": 24.8607, "lon": 67.0011},
+            {"name": "Lahore", "lat": 31.5204, "lon": 74.3587},
+            {"name": "Islamabad", "lat": 33.6844, "lon": 73.0479},
+            {"name": "Peshawar", "lat": 34.0151, "lon": 71.5249},
+            {"name": "Quetta", "lat": 30.1798, "lon": 66.9750},
+        ],
+        "diseases": ["dengue", "malaria", "cholera", "typhoid", "hepatitis"],
+        "news_keywords": [
+            "dengue outbreak", "malaria cases", "cholera", "typhoid",
+            "hepatitis", "fever outbreak", "hospital patients",
+        ],
+        "social_keywords": [
+            "dengue symptoms", "malaria symptoms", "fever", "sick",
+            "hospital overflow", "patients",
+        ],
+        "thresholds": {
+            "news_high": 10, "news_medium": 5,
+            "sentiment_high": 0.6, "sentiment_medium": 0.3,
+            "temp_high": 35.0, "rain_high": 50.0,
+        },
+        "groq": {"model": "llama-3.3-70b-versatile", "api_key_env": "GROQ_API_KEY"},
+        "lookback_hours": 24,
+    }
+    if not os.path.exists(config_path):
+        return defaults
+    with open(config_path) as f:
+        user = yaml.safe_load(f) or {}
+    for k, v in user.items():
+        if isinstance(v, dict) and isinstance(defaults.get(k), dict):
+            defaults[k].update(v)
+        else:
+            defaults[k] = v
+    return defaults
+
+CONFIG = load_config()
+
+# ── Signal fetchers ───────────────────────────────────────────────────
+
+async def fetch_news(session, keyword, hours):
+    q = f"{keyword} pakistan when:{hours}h"
+    url = f"https://news.google.com/rss/search?q={q}&hl=en-US&gl=US&ceid=US:en"
+    try:
+        async with session.get(url, timeout=aiohttp.ClientTimeout(total=15)) as r:
+            if r.status != 200:
+                return []
+            feed = feedparser.parse(await r.text())
+            return [{"title": e.get("title", ""), "link": e.get("link", "")} for e in feed.entries[:20]]
+    except Exception:
+        return []
+
+async def fetch_weather(session, city):
+    url = "https://api.open-meteo.com/v1/forecast"
+    params = {
+        "latitude": city["lat"], "longitude": city["lon"],
+        "daily": "temperature_2m_max,precipitation_sum,weathercode",
+        "timezone": "Asia/Karachi", "forecast_days": 7,
+    }
+    try:
+        async with session.get(url, params=params, timeout=aiohttp.ClientTimeout(total=15)) as r:
+            if r.status != 200:
+                return {"city": city["name"], "error": f"HTTP {r.status}"}
+            data = await r.json()
+            daily = data.get("daily", {})
+            times = daily.get("time", [])
+            forecast = [{"date": times[i],
+                          "temp_max": daily.get("temperature_2m_max", [None]*len(times))[i],
+                          "temp_min": daily.get("temperature_2m_min", [None]*len(times))[i],
+                          "precipitation": daily.get("precipitation_sum", [None]*len(times))[i],
+                          "weathercode": daily.get("weathercode", [None]*len(times))[i]}
+                         for i in range(len(times))]
+            return {"city": city["name"], "forecast": forecast}
+    except Exception as e:
+        return {"city": city["name"], "error": str(e)}
+
+PANIC_WORDS = {"outbreak", "epidemic", "panic", "crisis", "emergency", "surge", "spike", "death", "died", "fatal", "deadly"}
+FEAR_WORDS = {"fear", "worried", "concern", "alarm", "warning", "alert", "danger", "threat", "scared", "horrific"}
+HOPE_WORDS = {"recover", "recovering", "discharge", "treatment", "vaccine", "prevention", "control", "contained", "stable"}
+
+def sentiment_score(text):
+    t = text.lower()
+    score = (sum(1 for w in PANIC_WORDS if w in t) * 2 + sum(1 for w in FEAR_WORDS if w in t) - sum(1 for w in HOPE_WORDS if w in t) * 0.5) / 10
+    return max(0.0, min(1.0, score))
+
+def rule_based_risk(news_count, weather, sent, thresholds):
+    score = 0
+    drivers = []
+    if news_count >= thresholds["news_high"]:
+        score += 40; drivers.append(f"News uptick: {news_count} articles in 24h")
+    elif news_count >= thresholds["news_medium"]:
+        score += 20; drivers.append(f"Moderate news: {news_count} articles in 24h")
+    forecast = weather.get("forecast", [])
+    if forecast:
+        max_rain = max((d.get("precipitation") or 0) for d in forecast)
+        max_temp = max((d.get("temp_max") or 0) for d in forecast)
+        if max_rain >= thresholds["rain_high"]:
+            score += 20; drivers.append(f"Heavy rain forecast: {max_rain:.1f}mm")
+        if max_temp >= thresholds["temp_high"]:
+            score += 15; drivers.append(f"High temperature: {max_temp:.1f}°C")
+    if sent >= thresholds["sentiment_high"]:
+        score += 25; drivers.append(f"High panic sentiment: {sent:.2f}")
+    elif sent >= thresholds["sentiment_medium"]:
+        score += 10; drivers.append(f"Moderate concern: {sent:.2f}")
+    if score >= 70: level = "CRITICAL"
+    elif score >= 50: level = "HIGH"
+    elif score >= 30: level = "MODERATE"
+    else: level = "LOW"
+    return {"risk_level": level, "score": score, "confidence": round(min(0.95, 0.4 + score/100), 2), "drivers": drivers}
+
+async def collect_signals():
+    hours = CONFIG["lookback_hours"]
+    async with aiohttp.ClientSession() as session:
+        news = await asyncio.gather(*[fetch_news(session, kw, hours) for kw in CONFIG["news_keywords"]])
+        weather = await asyncio.gather(*[fetch_weather(session, c) for c in CONFIG["cities"]])
+        social = await asyncio.gather(*[fetch_news(session, kw, 24) for kw in CONFIG["social_keywords"]])
+    all_news = [a for sub in news for a in sub]
+    all_social = [p for sub in social for p in sub]
+    all_weather = [w for w in weather if "error" not in w]
+    all_text = " ".join(a["title"] for a in all_news + all_social)
+    return all_news, all_weather, all_social, sentiment_score(all_text)
+
+# ── API Models ────────────────────────────────────────────────────────
+
+class RiskCard(BaseModel):
+    city: str
+    disease: str
+    risk_level: str
+    confidence: float
+    drivers: list[str]
+    recommendation: str
+
+class RiskResponse(BaseModel):
+    timestamp: str
+    signals: dict
+    risk_cards: list[RiskCard]
+
+# ── Endpoints ─────────────────────────────────────────────────────────
+
+@app.get("/")
+def health():
+    return {"status": "ok", "service": "outbreak-sentinel", "version": "1.0.0", "cities": [c["name"] for c in CONFIG["cities"]]}
+
+@app.get("/risk", response_model=RiskResponse)
+async def get_risk(city: Optional[str] = None, disease: str = "dengue"):
+    """Get outbreak risk cards. Filter by city and/or disease."""
+    try:
+        news, weather, social, sent = await asyncio.wait_for(collect_signals(), timeout=30)
+    except asyncio.TimeoutError:
+        raise HTTPException(status_code=504, detail="Signal collection timed out")
+
+    cards = []
+    for w in weather:
+        card = rule_based_risk(len(news), w, sent, CONFIG["thresholds"])
+        card["city"] = w["city"]
+        card["disease"] = disease
+        card["recommendation"] = "Continue monitoring" if card["risk_level"] == "LOW" else "Investigate signals"
+        if city is None or w["city"].lower() == city.lower():
+            cards.append(RiskCard(**card))
+
+    if city and not cards:
+        raise HTTPException(status_code=404, detail=f"No data for city: {city}")
+
+    now = datetime.now(timezone(timedelta(hours=5))).strftime("%Y-%m-%d %H:%M PKT")
+    return RiskResponse(
+        timestamp=now,
+        signals={"news": len(news), "social": len(social), "cities": len(weather)},
+        risk_cards=cards,
+    )
+
+@app.get("/cities")
+def list_cities():
+    return {"cities": [c["name"] for c in CONFIG["cities"]]}
+
+@app.get("/diseases")
+def list_diseases():
+    return {"diseases": CONFIG["diseases"]}
