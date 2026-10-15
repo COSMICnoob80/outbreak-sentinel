@@ -108,3 +108,68 @@ drivers: 340% news uptick + monsoon rain + panic score 0.81
 ### Housekeeping
 - `sentinel.log` truncated to 0 bytes (stale pre-env-fix `ModuleNotFoundError: No module named 'feedparser'` tracebacks). Gitignored (`.gitignore:14`) and untracked — never ships.
 - Recreated the uv venv (`.venv`, Python 3.12) from `requirements.txt` — `groq` was absent from the host interpreter. Harness caveat: `PYTHONPATH` points at a Python 3.14 site-packages, so runs must use `env -u PYTHONPATH .venv/bin/python …` (else `pydantic_core` import fails).
+
+---
+
+## 📊 CURRENT STATE (2026-10-15) — REPOSITIONING: universal platform + pitch kit
+
+### Decision (Director + Signal Architect)
+Reposition from a single-vertical dengue app to a **universal agentic early-warning
+platform**. Bio-surveillance is the *first vertical*, not the product. The moat is the
+**receipt ledger**: we issue a signed, falsifiable prediction and later resolve it against
+reality (CONFIRMED/REFUTED), so "trust our AI" becomes "check our ledger."
+
+### The adapter/vertical seam (new `verticals/` package, new files only)
+- `verticals/base.py` — `Vertical` dataclass (`slug, name, description, subjects,
+  subject_label, signal_sources, risk_model, keywords, example_queries, locations,
+  forecast_vars, lookback_hours, fusion_role`) + `RiskModel` (`high_means`,
+  `escalation_rule`, `downgrade_rule`, `levels`) + `Location`.
+- **The seam:** `Vertical.to_config()` compiles a vertical into the exact dict the shipping
+  engine already reads (`cities`, `diseases`, `news_keywords`, `social_keywords`,
+  `lookback_hours`) plus a `_vertical` metadata block (`signal_sources`, `forecast_vars`,
+  `fusion_role`, `risk_model`). So a new domain touches **no engine file**.
+- `verticals/__init__.py` — static registry (`VERTICALS`, `get_vertical`, `all_verticals`).
+- `verticals/bio_surveillance.py` — the current setup, derived by READING `config.yaml`
+  (read-only; config.yaml ownership untouched). 3 verticals total: bio-surveillance,
+  `wildfire.py` (news + weather wind/humidity), `supply_chain.py` (news + weather + social).
+- `verticals/README.md` — how to add a vertical in ≤50 lines.
+
+### Pitch kit (new `pitch/` package)
+`ONE-PAGER.md` (universal pitch, track-agnostic) · `ARCHITECTURE.md` (ASCII diagram, both
+seams explicit) · `DEMO-SCRIPT.md` (3-min judge script) · `HACKATHON-FIT.md` (live-verified
+fit table). README rewritten to lead with the platform pitch; dengue demoted to a worked
+example. Quick-start commands unchanged.
+
+### Verified on disk (2026-10-15)
+- `env -u PYTHONPATH .venv/bin/python -m compileall -q verticals` → clean.
+- Registry loads 3 verticals; `bio-surveillance` derived **5 cities + 5 diseases** from
+  `config.yaml`; `wildfire.to_config()` keys = `cities, diseases, news_keywords,
+  social_keywords, lookback_hours`.
+- No new runtime dependencies (stdlib `dataclasses`; `pyyaml` already in requirements).
+  No edits to owned files (`app.py`, `outbreak_sentinel.py`, `config.yaml`, etc.).
+
+### ⚠️ Hackathon correction (was wrong in prior state)
+Prior state recorded "Telegraph Season II, deadline Oct 28." **Conflated two events.**
+Verified live 2026-10-15: **AWS CDS Agentic AI Partner closes Oct 28, 2026**;
+**Telegraph Hackathon Season II runs Nov 1 – Dec 1, 2026**. Also verified: CodeTheCure
+Oct 28 (5:00pm EDT), Qloo Oct 30 (flagged **weak fit** — taste API is a poor domain match),
+EthnoHack Nov 2–8, HETIC Nov 4–Dec 18, Agentware Nov 27–30. Sources in
+`pitch/HACKATHON-FIT.md`.
+
+### Blocked / not yet wired (plainly)
+1. **Fusion prompt is still bio-worded.** `outbreak_sentinel.py`'s `fuse_with_groq` prompt
+   hardcodes "outbreak risk analyst" / "most likely disease". The vertical's `fusion_role`
+   and `subject_label` are declared in `to_config()` but **not yet consumed** by the engine
+   (engine is owned by another agent — not edited here).
+2. **Weather vars.** The engine requests only `temperature_2m_max, precipitation_sum,
+   weathercode`. Wildfire/supply-chain `forecast_vars` (wind, humidity) are declared but
+   **not yet requested** — the seam is documented, not wired.
+3. **Channel adapters.** A concurrent agent (Platform Engineer) built a delivery layer
+   (`adapters/`: console / webhook / file + `POST /alerts` in `app.py`). That work is
+   **not part of this commit and not verified here** (`app.py` is owned by that agent;
+   I only read it). SMS/WhatsApp/email (the cloud-track adapter) remain a named seam.
+
+### Concurrent work in this working tree (NOT in this commit)
+- `app.py` modified + `adapters/` added by the Platform Engineer (channel seam). Staged
+  out deliberately to keep this commit = the repositioning (verticals + pitch + docs) only.
+- `history/alerts.jsonl` is gitignored (`.gitignore:18`). `__pycache__/` gitignored (`.gitignore:7`).

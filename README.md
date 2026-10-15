@@ -1,19 +1,54 @@
-# Outbreak Sentinel 🛰️ — Bio-surveillance Early Warning
+# Outbreak Sentinel 🛰️ — agentic early warning with a verifiable prediction ledger
 
-> **Status: BUILT** — Core agent functional. Fuses news, weather, and social signals into outbreak risk cards.
+> **We don't just alert. We issue a signed prediction and later prove whether we were right.**
 
-## What It Does
-
-An autonomous bio-surveillance agent that fuses multiple intelligence signals to detect
-early outbreak signals **before official health systems announce them**:
+Outbreak Sentinel is a **platform**, not a single-disease app. One engine watches
+any signal set, fuses it with an LLM, emits a **calibrated risk card**, logs it as
+a **tamper-evident receipt**, and later **resolves it against reality**. The name
+reflects our first vertical — disease surveillance — but the engine is
+vertical-agnostic.
 
 ```
-NEWS_SEARCH ──────┐
-WEATHER_FORECAST ─┼──→ signal fusion (Groq LLM) ──→ OUTBREAK RISK CARD
-SOCIAL_CHATTER ───┘                                ⚠ Dengue, Karachi — HIGH
-                                                   drivers: news uptick +
-                                                   monsoon rain + panic score
+open signals ─→ fuse (LLM) ─→ calibrated risk card ─→ signed receipt ─→ resolve vs reality
+news / weather / social
 ```
+
+## Why it's different: the receipt ledger
+
+Anybody can print a red alert. The rare thing is **keeping score**. Every
+`HIGH`/`CRITICAL` call becomes a receipt:
+
+- **Tamper-evident** — id is the sha256 of the card's content; the ledger is
+  append-only (`history/receipts.jsonl`), with no rewrite or un-resolve path.
+- **Resolvable** — a human later marks it `CONFIRMED` or `REFUTED` against a real
+  source; resolution appends a *new* event, so history is never mutated.
+- **Auditable** — `GET /scoreboard` is the honest track record: calls made,
+  calls resolved, verdicts. `resolved: 0` means "not yet checked", not "hidden".
+
+That turns "trust our AI" into "check our ledger" — the only thing that makes an
+early warning worth acting on.
+
+## Verticals — one engine, many domains
+
+The engine never changes. A **vertical** is a ~50-line declarative config: what to
+watch, which signals, how to read the weather, and *what `HIGH` means*. See
+[`verticals/README.md`](verticals/README.md) for the recipe.
+
+| Vertical | Watches | Signals | `HIGH` means |
+|---|---|---|---|
+| `bio-surveillance` | Cities, diseases | news + weather + social | outbreak likely within 7 days |
+| `wildfire` | Fire-prone regions | news + weather (wind, humidity) | fast-spreading fire within 48h |
+| `supply-chain` | Global trade hubs | news + weather + social | hub disruption within 7 days |
+
+```python
+from verticals import all_verticals
+for v in all_verticals():
+    print(v.describe())
+```
+
+Adding a vertical compiles to the same config the engine already reads
+(`Vertical.to_config()`), so fusion, calibration, the ledger, and resolution all
+come for free.
 
 ## Quick Start
 
@@ -65,7 +100,11 @@ crontab -e
 0 */6 * * * cd ~/telegraph-hackathon/outbreak-sentinel && /usr/bin/python3 outbreak_sentinel.py >> sentinel.log 2>&1
 ```
 
-## Output
+## Verticals in depth — worked example: bio-surveillance
+
+The original (and still first) vertical: watch Pakistan cities for the digital
+exhaust of a brewing outbreak — news upticks, panic chatter, and vector-friendly
+weather — days before official confirmation. **Surveillance, never diagnosis.**
 
 The agent prints a color-coded risk card to console:
 
@@ -92,15 +131,6 @@ Signals: 45 news | 23 social | 5 cities
    Recommendation: Continue monitoring
 ```
 
-## Architecture
-
-```
-outbreak_sentinel.py    — Main agent (async, standalone)
-config.yaml             — Cities, diseases, keywords, thresholds
-requirements.txt        — Python dependencies
-.env.example            — API key template
-```
-
 ### Signal Sources
 
 | Signal | Source | Method |
@@ -118,7 +148,9 @@ requirements.txt        — Python dependencies
 - **MODERATE** (≥30): Some signals — continue monitoring
 - **LOW** (<30): Baseline — routine surveillance
 
-## Configuration
+A card only reaches `HIGH` when **≥2 independent signal families agree** (e.g. a
+news uptick *and* vector-friendly weather). One signal is never enough — that is
+the false-positive budget, enforced in the calibration rule.
 
 ### Adding a City
 
@@ -158,23 +190,60 @@ thresholds:
 2. **Score**: Keyword-based sentiment analysis on headlines
 3. **Fuse**: Groq LLM analyzes all signals per city and produces risk verdicts
 4. **Fallback**: If Groq unavailable, rule-based scoring using configurable thresholds
-5. **Output**: Color-coded risk cards with drivers and recommendations
+5. **Receipt**: `HIGH`/`CRITICAL` cards persist as sha256-hashed receipts
+6. **Resolve**: `python verify.py <id> CONFIRMED|REFUTED "<source>"` scores them
+7. **Output**: Color-coded risk cards with drivers and recommendations
+
+## API
+
+```
+GET /                    service health
+GET /risk                fresh fused risk cards (optional ?city=)
+GET /receipts            the ledger (optional ?status=OPEN|RESOLVED)
+GET /receipts/{id}       one tamper-evident receipt (404 if unknown)
+GET /scoreboard          calls made · resolved · verdicts
+GET /cities /diseases    configured subject axis
+```
+
+## Architecture
+
+See [`pitch/ARCHITECTURE.md`](pitch/ARCHITECTURE.md) for the full diagram and the
+two seams (vertical config + delivery adapter).
+
+```
+verticals/            the domain seam: base.py + 3 verticals + registry
+outbreak_sentinel.py  the engine: fetch → fuse → card (+ rule-based fallback)
+receipts.py           append-only ledger: make_receipt / ReceiptStore
+publish.py            HIGH/CRITICAL cards → receipts
+verify.py             human resolver: CONFIRMED | REFUTED + source
+app.py                FastAPI dashboard/API
+agents/               the studio-team pattern (director, signal architect, ...)
+pitch/                one-pager, architecture, demo script, hackathon fit
+config.yaml           cities, diseases, keywords, thresholds (bio vertical)
+```
+
+## Pitch & demo
+
+- [`pitch/ONE-PAGER.md`](pitch/ONE-PAGER.md) — the universal pitch (any track).
+- [`pitch/DEMO-SCRIPT.md`](pitch/DEMO-SCRIPT.md) — a 3-minute judge demo.
+- [`pitch/HACKATHON-FIT.md`](pitch/HACKATHON-FIT.md) — which tracks fit, and why.
 
 ## Limitations
 
-- **News source**: Uses Google News RSS (no direct Twitter API access)
-- **Sentiment**: Simple keyword-based scoring (not ML-based)
+- **News source**: Google News RSS (no direct Twitter/X API access)
+- **Sentiment**: keyword-based scoring (not ML-based)
 - **Weather**: 7-day forecast only (no historical analysis)
-- **Geographic**: Pakistan-focused (easily extensible)
+- **Locations**: shipped verticals are region-focused (extensible via `verticals/`)
+- **Resolution**: human-in-the-loop by design — a receipt is only scored when a
+  person checks it against a real source
 
 ## Future Enhancements
 
-- [ ] Direct Twitter/X API integration
+- [ ] Delivery adapters (SMS / WhatsApp / email) behind the channel seam
+- [ ] More verticals (crop disease, financial stress, traffic)
 - [ ] ML-based sentiment analysis
 - [ ] Historical trend analysis
-- [ ] SMS/email alerts
-- [ ] Web dashboard
-- [ ] More cities and diseases
+- [ ] Automated source-watcher to pre-fill resolutions
 
 ## License
 
