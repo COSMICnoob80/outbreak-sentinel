@@ -8,8 +8,11 @@ def format_card(card: dict) -> str:
     level = str(card.get("risk_level", "UNKNOWN")).upper()
     lines = [f"[{level}] {card.get('city', 'Unknown')} — {card.get('disease', 'unknown')}"]
     confidence = card.get("confidence")
-    if isinstance(confidence, (int, float)):
-        lines.append(f"  confidence: {confidence:.0%}")
+    if isinstance(confidence, (int, float)) and not isinstance(confidence, bool):
+        # Cards arrive in two conventions: 0-1 fraction or 0-100 percent.
+        # Normalise to a fraction so `{:.0%}` renders correctly either way.
+        frac = confidence / 100.0 if confidence > 1 else confidence
+        lines.append(f"  confidence: {frac:.0%}")
     for driver in card.get("drivers") or []:
         lines.append(f"  - {driver}")
     if card.get("recommendation"):

@@ -173,3 +173,60 @@ EthnoHack Nov 2–8, HETIC Nov 4–Dec 18, Agentware Nov 27–30. Sources in
 - `app.py` modified + `adapters/` added by the Platform Engineer (channel seam). Staged
   out deliberately to keep this commit = the repositioning (verticals + pitch + docs) only.
 - `history/alerts.jsonl` is gitignored (`.gitignore:18`). `__pycache__/` gitignored (`.gitignore:7`).
+
+---
+
+## 📊 CHECKPOINT 2026-10-15 (late) — platform seams LIVE, fusion gap closed by operator
+
+Supersedes the "Blocked / not yet wired" section above on every point it covers.
+
+### Repositioning shipped: engine + two seams
+The project is no longer a dengue app. Core engine is stable and domain-agnostic;
+two seams make it universal:
+- **`verticals/`** — `Vertical.to_config()` compiles a domain into the exact dict
+  `outbreak_sentinel.py:load_config()` already consumes. Adding a domain touches no
+  engine file. Registry verified live: `['bio-surveillance', 'wildfire', 'supply-chain']`.
+- **`adapters/`** — `Channel.send(card) -> bool`; console / webhook / file. Env-driven via
+  `SENTINEL_CHANNELS`. `POST /alerts` is the universal inbound hook — any front-end, chat
+  bot or IFTTT-style trigger POSTs a card and it fans out to every channel.
+
+### Real Groq fusion — CONFIRMED (operator closed the blocker)
+`config.yaml` model = **`openai/gpt-oss-120b`**. `llama-3.3-70b-versatile` returns 404
+`model_not_found` on this key — it is NOT available; the Oct-15 "blocked" note above is
+resolved by model choice, not by waiting. Verified in a clean shell
+(`env -u PYTHONPATH -u GROQ_API_KEY`), exit 0, zero `rule-based` strings in a full run,
+with per-city differentiated output: Karachi HIGH / Lahore MODERATE / Islamabad+Peshawar
+LOW, each with distinct drivers and tailored recommendations.
+
+### Verified live (not reported)
+- `pytest`: 3 passed. Ledger: 1 line, `status: OPEN`, resolved=0 (honest).
+- API via TestClient: `/health`, `/alerts`, `/scoreboard`, `/receipts`, `/cities`,
+  `/diseases` → all 200. Existing routes intact.
+- `/health` → `{'status':'ok','version':'1.0.0','groq_key_present':True}`; the field
+  was proven real (flips false→true→false with/without an injected key).
+- `POST /alerts` fan-out → `{'accepted':True,'channels':{'console':True},'delivered':1}`.
+- `docker build` succeeded; container HEALTHCHECK `healthy`, ExitCode 0.
+
+### Operator fix — confidence formatting bug
+`adapters/console.py` rendered a 0-100 card as "7100%" (used `{:.0%}` on a percent value).
+Normalised: values >1 treated as percent, else fraction; `bool` excluded. Both
+conventions now render `71%`. Found by live-testing `/alerts`, not by report.
+
+### Still open (plainly, with owners)
+1. **Fusion prompt + weather vars not consumed.** `fusion_role`/`subject_label`/
+   `forecast_vars` are declared in `to_config()` but `outbreak_sentinel.py` still hardcodes
+   bio wording and requests only temp/precip/weathercode. Wildfire therefore *runs* but its
+   reasoning is dengue-shaped. This is the next real fix — engine file.
+2. **SMS/WhatsApp/email adapter** — named seam, not built. Required for the AWS CDS track.
+3. **Container starts with an empty ledger** — `history/receipts.jsonl` is excluded from the
+   image and no volume is mounted. Needs a decision before any demo-from-container.
+4. **`docker compose` plugin absent** on this host (daemon + buildx present, compose is not).
+   Image verified via `docker build` + live container; `docker-compose.yml` is unexecuted here.
+
+### Hackathon eligibility gates (decision-changing — verified live 2026-10-15)
+- **AWS CDS (Oct 28, $40K) requires AWS Partner status** — verify BEFORE investing build
+  budget in the SMS/WhatsApp adapter for it.
+- **CodeTheCure / EthnoHack / HETIC are students-only** — likely ineligible.
+- **Telegraph Season II (Nov 1 – Dec 1, open to all, Track 03)** is the unrestricted runway.
+- Oct 28 is the **AWS CDS** deadline; Telegraph is Nov 1 – Dec 1. Earlier notes conflated these.
+- Full table with per-hackathon angles and live sources: `pitch/HACKATHON-FIT.md`.
