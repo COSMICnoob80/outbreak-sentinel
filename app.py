@@ -231,3 +231,46 @@ def list_cities():
 @app.get("/diseases")
 def list_diseases():
     return {"diseases": CONFIG["diseases"]}
+
+
+# ── Channel adapters: universal inbound hook + health check ───────────
+
+from adapters import fan_out
+from outbreak_sentinel import load_env_file
+
+load_env_file()
+
+
+class AlertCard(BaseModel):
+    city: str
+    disease: str
+    risk_level: str
+    confidence: float
+    drivers: list[str] = []
+    recommendation: str = ""
+    receipt_id: Optional[str] = None
+
+
+@app.post("/alerts")
+async def post_alert(card: AlertCard):
+    """Fan a posted risk card out through every configured channel."""
+    results = await fan_out(card.model_dump(exclude_none=True))
+    return {
+        "accepted": True,
+        "channels": results,
+        "delivered": sum(1 for ok in results.values() if ok),
+        "total": len(results),
+    }
+
+
+@app.get("/health")
+def health_check():
+    """Liveness probe that reports honestly, including Groq key resolution."""
+    key_env = CONFIG.get("groq", {}).get("api_key_env", "GROQ_API_KEY")
+    key = os.environ.get(key_env)
+    return {
+        "status": "ok",
+        "service": "outbreak-sentinel",
+        "version": app.version,
+        "groq_key_present": bool(key and key.strip()),
+    }

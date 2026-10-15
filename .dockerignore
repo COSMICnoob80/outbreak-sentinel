@@ -1,0 +1,17 @@
+.git
+.venv
+venv
+__pycache__
+*.pyc
+.pytest_cache
+sentinel.log
+*.log
+
+# runtime ledgers and delivery logs ship empty, never baked into an image
+history/receipts.jsonl
+history/alerts.jsonl
+
+# secrets: compose injects these via env_file, they must not enter a layer
+.env
+.env.*
+!.env.example

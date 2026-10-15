@@ -15,4 +15,5 @@ sentinel.log
 
 # runtime state
 history/*.json
+history/alerts.jsonl
 !history/.gitkeep
