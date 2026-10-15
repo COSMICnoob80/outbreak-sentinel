@@ -10,8 +10,19 @@ Director persona updates this; SPINE.md links here.
 - Track rationale: the moat is agentic orchestration — the studio-team pattern itself is the demo, not the health domain.
 
 ## Build State (2026-10-15)
-- `.env` now loads via stdlib `load_env_file()` in `outbreak_sentinel.py` (no python-dotenv); Groq key resolves with no env preloaded
-- `config.yaml` model fixed `"rule-based"` → `llama-3.3-70b-versatile`; but that model 404s on this key (`model_not_found`) — NOT available, so real LLM fusion is still unconfirmed
-- Account exposes 11 models (gpt-oss-120b/20b, qwen3.8-27b, allam-2-7b, …); `llama-3.3-70b-versatile` absent → **operator must pick the fusion model**
-- Receipt ledger honest: fabricated future-dated resolve purged; 1 receipt, status OPEN, 0 resolved; 3 tests pass
+- **Real Groq LLM fusion LIVE** on `openai/gpt-oss-120b`. Per-city differentiated reasoning
+  confirmed: Karachi HIGH / Lahore MODERATE / Islamabad+Peshawar LOW, each with distinct
+  drivers and tailored recommendations. Zero "rule-based" strings in a full run.
+- `.env` loaded via a stdlib-only loader in `outbreak_sentinel.py:27` — no python-dotenv
+  dependency (the project venv is uv-built; dependency churn has burned this project before)
+- Receipt ledger honest: 1 receipt, `status: OPEN`, `/scoreboard` resolved=0. The
+  future-dated "DGHS bulletin 2026-11-07" resolve event was purged 2026-10-15. Ledger
+  remains append-only; `receipts.py`/`publish.py` semantics untouched.
+- 3 tests passing. Sentinel log cleared and gitignored. All commits pushed (working tree clean).
+- ⚠️ Groq model availability: `llama-3.3-70b-versatile` (the original design's assumption)
+  returns 404 `model_not_found` on this account. Live account exposes 11 models; strongest
+  reasoning option is `openai/gpt-oss-120b`. Verify with GET /openai/v1/models.
+- ⚠️ Project now has its own `.venv` (Python 3.12) because `groq` was absent from the host
+  interpreter. Run as `env -u PYTHONPATH .venv/bin/python` — the harness exports a PYTHONPATH
+  into a Python 3.14 site-packages that otherwise breaks the venv.
 - Receipt engine live: publish.py persists HIGH/CRITICAL cards; verify.py resolves them; API exposes /receipts, /receipts/{id}, /scoreboard
