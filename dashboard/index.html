@@ -3,6 +3,8 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="theme-color" content="#58a6ff" />
+<link rel="manifest" href="manifest.json" />
 <title>Outbreak Sentinel — Telegraph Buying Layer (Track 03)</title>
 <style>
   body { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; background:#0b0f14; color:#e6edf3; margin:0; padding:24px; }
@@ -26,6 +28,7 @@
 </style>
 </head>
 <body>
+<div id="offline-banner" style="display:none;background:#3d1f1f;border:1px solid #f85149;color:#f85149;padding:8px 12px;border-radius:6px;margin-bottom:12px;font-weight:bold;">You are offline — shell cached, API unreachable.</div>
 <h1>Outbreak Sentinel — Telegraph Buying Layer (Track 03)</h1>
 <div class="banner" id="boundary">TESTNET ONLY — loading boundary statement...</div>
 
@@ -133,6 +136,20 @@ async function runAssessment() {
   }
 }
 loadStatus();
+
+// PWA service worker registration
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('service-worker.js').catch(function (e) { console.warn('SW register failed', e); });
+}
+
+// Offline state detection
+function updateOffline() {
+  const b = document.getElementById('offline-banner');
+  if (b) b.style.display = navigator.onLine ? 'none' : 'block';
+}
+window.addEventListener('online', updateOffline);
+window.addEventListener('offline', updateOffline);
+updateOffline();
 </script>
 </body>
 </html>

@@ -411,3 +411,15 @@ def telegraph_dashboard():
     import os as _os
     path = _os.path.join(_os.path.dirname(__file__), "static", "telegraph.html")
     return FileResponse(path, media_type="text/html")
+
+
+# ── Static file mounts (PWA + dashboard) — additive ─────────────────────
+from fastapi.staticfiles import StaticFiles
+
+_dashboard_dir = os.path.join(os.path.dirname(__file__), "dashboard")
+if os.path.isdir(_dashboard_dir):
+    app.mount("/dashboard", StaticFiles(directory=_dashboard_dir, html=True), name="dashboard")
+
+_static_dir = os.path.join(os.path.dirname(__file__), "static")
+if os.path.isdir(_static_dir):
+    app.mount("/static", StaticFiles(directory=_static_dir), name="static")

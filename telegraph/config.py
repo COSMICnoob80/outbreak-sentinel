@@ -43,24 +43,32 @@ TELEGRAPH_MINER_SELECTION = _env("TELEGRAPH_MINER_SELECTION", "auto")
 
 # --- Settlement mode ---------------------------------------------------------
 # "mock"  -> Mechanism build: REST seam is real, settlement is mocked (no wallet).
-# "live"  -> requires TELEGRAPH_EVM_PRIVATE_KEY and an x402 client; not available
-#            in this environment (no x402 python SDK installed).
+# "live"  -> requires TELEGRAPH_EVM_PRIVATE_KEY (funded Base Sepolia wallet) and
+#            the x402 Python SDK (x402[evm]); signs an EIP-3009
+#            transferWithAuthorization and settles on Base Sepolia.
 TELEGRAPH_SETTLEMENT_MODE = _env("TELEGRAPH_SETTLEMENT_MODE", "mock")
 TELEGRAPH_EVM_PRIVATE_KEY = _env("TELEGRAPH_EVM_PRIVATE_KEY", "")
 
 # Intent hint for discovery/routing. Empty -> Engine auto-classifies the query.
 TELEGRAPH_INTENT_HINT = _env("TELEGRAPH_INTENT_HINT", "")
 
-# Testnet boundary statement shown on screen, unprompted.
-TESTNET_BOUNDARY = (
-    "TESTNET ONLY — Base Sepolia (chain id 84532). No real value moves. "
-    "Settlement is mocked (Mechanism build): the routing/discovery seam is real, "
-    "the denomination is not. Flips to mainnet by changing TELEGRAPH_* config."
-)
-
-
 def is_live() -> bool:
     return TELEGRAPH_SETTLEMENT_MODE.lower() == "live" and bool(TELEGRAPH_EVM_PRIVATE_KEY)
+
+
+# Testnet boundary statement shown on screen, unprompted.
+if is_live():
+    TESTNET_BOUNDARY = (
+        "TESTNET ONLY — Base Sepolia (chain id 84532). Settlement is LIVE via x402: "
+        "a real transaction is submitted on Sepolia. No mainnet value moves."
+    )
+else:
+    TESTNET_BOUNDARY = (
+        "TESTNET ONLY — Base Sepolia (chain id 84532). No real value moves. "
+        "Settlement is mocked (Mechanism build): the routing/discovery seam is real, "
+        "the denomination is not. Flips to live by setting TELEGRAPH_SETTLEMENT_MODE=live "
+        "and a funded wallet key."
+    )
 
 
 TELEGRAPH_CONFIG = {
