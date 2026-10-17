@@ -159,6 +159,55 @@ class RiskResponse(BaseModel):
     timestamp: str
     signals: dict
     risk_cards: list[RiskCard]
+    engine: Optional[str] = None  # "llm" | "rule-based" — honest about path taken
+
+
+_CARD_KEYS = ("city", "disease", "risk_level", "confidence", "drivers", "recommendation")
+
+
+def _norm_card(c: dict, disease: str, fallback: dict | None = None) -> dict:
+    """Coerce a card (LLM or rule-based) into the exact RiskCard shape."""
+    base = fallback or {}
+    level = str(c.get("risk_level") or base.get("risk_level") or "LOW").upper()
+    if level not in ("LOW", "MODERATE", "HIGH", "CRITICAL"):
+        level = "LOW"
+    conf = float(c.get("confidence", base.get("confidence", 0.5)))
+    if conf > 1:
+        conf = conf / 100.0
+    drivers = c.get("drivers") or base.get("drivers") or []
+    if isinstance(drivers, str):
+        drivers = [drivers]
+    return {
+        "city": str(c.get("city") or base.get("city") or "Unknown"),
+        "disease": str(c.get("disease") or disease),
+        "risk_level": level,
+        "confidence": max(0.0, min(1.0, conf)),
+        "drivers": [str(d) for d in drivers][:6],
+        "recommendation": str(c.get("recommendation") or base.get("recommendation") or "Investigate signals"),
+    }
+
+
+async def _fuse_or_rule_based(news, weather, social, sent, disease, city=None):
+    """LLM fusion FIRST — the real agentic path."""
+    fused = []
+    try:
+        fused = await asyncio.wait_for(fuse_with_groq(news, weather, social, CONFIG), timeout=90) or []
+    except Exception:
+        fused = []
+    if fused:
+        cards = [_norm_card(c, disease) for c in fused if isinstance(c, dict) and c.get("risk_level")]
+        if city:
+            cards = [c for c in cards if c["city"].lower() == city.lower()]
+        if cards:
+            return cards, "llm"
+    cards = []
+    for w in weather:
+        card = _norm_card(rule_based_risk(len(news), w, sent, CONFIG["thresholds"]), disease, w)
+        card["city"] = w["city"]
+        if city is None or w["city"].lower() == city.lower():
+            cards.append(card)
+    return cards, "rule-based"
+
 
 # ── Endpoints ─────────────────────────────────────────────────────────
 
@@ -168,21 +217,17 @@ def health():
 
 @app.get("/risk", response_model=RiskResponse)
 async def get_risk(city: Optional[str] = None, disease: str = "dengue"):
-    """Get outbreak risk cards. Filter by city and/or disease."""
+    """Get outbreak risk cards. Filter by city and/or disease.
+
+    Runs the real LLM fusion path. Rule-based scoring is used only when the LLM
+    is unavailable; the `engine` field reports which path ran.
+    """
     try:
         news, weather, social, sent = await asyncio.wait_for(collect_signals(), timeout=30)
     except asyncio.TimeoutError:
         raise HTTPException(status_code=504, detail="Signal collection timed out")
 
-    cards = []
-    for w in weather:
-        card = rule_based_risk(len(news), w, sent, CONFIG["thresholds"])
-        card["city"] = w["city"]
-        card["disease"] = disease
-        card["recommendation"] = "Continue monitoring" if card["risk_level"] == "LOW" else "Investigate signals"
-        if city is None or w["city"].lower() == city.lower():
-            cards.append(RiskCard(**card))
-
+    cards, engine = await _fuse_or_rule_based(news, weather, social, sent, disease, city)
     if city and not cards:
         raise HTTPException(status_code=404, detail=f"No data for city: {city}")
 
@@ -190,7 +235,8 @@ async def get_risk(city: Optional[str] = None, disease: str = "dengue"):
     return RiskResponse(
         timestamp=now,
         signals={"news": len(news), "social": len(social), "cities": len(weather)},
-        risk_cards=cards,
+        risk_cards=[RiskCard(**{k: c[k] for k in _CARD_KEYS}) for c in cards],
+        engine=engine,
     )
 
 LEDGER_PATH = os.path.join(os.path.dirname(__file__), "history", "receipts.jsonl")
@@ -236,7 +282,7 @@ def list_diseases():
 # ── Channel adapters: universal inbound hook + health check ───────────
 
 from adapters import fan_out
-from outbreak_sentinel import load_env_file
+from outbreak_sentinel import load_env_file, fuse_with_groq
 
 load_env_file()
 
@@ -301,26 +347,21 @@ async def telegraph_risk(req: TelegraphRiskRequest):
         req.query, context={"city": req.city, "disease": req.disease, "vertical": req.vertical}
     )
 
-    # Build the resulting risk card using the existing engine (additive reuse).
+    # Build the resulting risk card via the real LLM fusion path (additive reuse).
     risk_card = None
+    engine = None
     try:
         news, weather, social, sent = await asyncio.wait_for(collect_signals(), timeout=30)
-        for w in weather:
-            if req.city is not None and w["city"].lower() != req.city.lower():
-                continue
-            card = rule_based_risk(len(news), w, sent, CONFIG["thresholds"])
-            card["city"] = w["city"]
-            card["disease"] = req.disease
-            card["recommendation"] = "Continue monitoring" if card["risk_level"] == "LOW" else "Investigate signals"
-            risk_card = card
-            break
-        if risk_card is None and weather:
+        cards, engine = await _fuse_or_rule_based(news, weather, social, sent, req.disease, req.city)
+        if cards:
+            risk_card = _norm_card(cards[0], req.disease)
+            risk_card["city"] = req.city or cards[0].get("city", "Unknown")
+        elif weather:
             w = weather[0]
-            card = rule_based_risk(len(news), w, sent, CONFIG["thresholds"])
-            card["city"] = w["city"]
-            card["disease"] = req.disease
-            card["recommendation"] = "Continue monitoring" if card["risk_level"] == "LOW" else "Investigate signals"
-            risk_card = card
+            risk_card = _norm_card(rule_based_risk(len(news), w, sent, CONFIG["thresholds"]), req.disease, w)
+            risk_card["city"] = w["city"]
+            risk_card["disease"] = req.disease
+            engine = "rule-based"
     except Exception as exc:  # never fail the demo endpoint on signal hiccups
         risk_card = {"error": str(exc)}
 
@@ -351,6 +392,7 @@ async def telegraph_risk(req: TelegraphRiskRequest):
             "mocked": settlement["mocked"],
         },
         "risk_card": risk_card,
+        "engine": engine,
         "testnet_boundary": proof["testnet_boundary"],
     }
 
