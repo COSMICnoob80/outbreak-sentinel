@@ -274,3 +274,140 @@ def health_check():
         "version": app.version,
         "groq_key_present": bool(key and key.strip()),
     }
+
+
+# ── Telegraph buying layer (Track 03: Apps & Agents) ─────────────────────
+# Additive only. The agent BUYS ranked intelligence through Telegraph.
+
+from telegraph.config import TELEGRAPH_CONFIG, is_live
+from telegraph.client import TelegraphClient
+
+_telegraph_client = TelegraphClient()
+
+
+class TelegraphRiskRequest(BaseModel):
+    query: str = "Assess outbreak risk for the monitored cities"
+    city: Optional[str] = None
+    disease: str = "dengue"
+    vertical: Optional[str] = None
+
+
+@app.post("/telegraph/risk")
+async def telegraph_risk(req: TelegraphRiskRequest):
+    """Track 03 demo endpoint: route a PAID Telegraph request, return ranked
+    answer + settlement proof + resulting risk card. Money-visible fields are
+    first-class JSON keys."""
+    proof = await _telegraph_client.buy_intelligence(
+        req.query, context={"city": req.city, "disease": req.disease, "vertical": req.vertical}
+    )
+
+    # Build the resulting risk card using the existing engine (additive reuse).
+    risk_card = None
+    try:
+        news, weather, social, sent = await asyncio.wait_for(collect_signals(), timeout=30)
+        for w in weather:
+            if req.city is not None and w["city"].lower() != req.city.lower():
+                continue
+            card = rule_based_risk(len(news), w, sent, CONFIG["thresholds"])
+            card["city"] = w["city"]
+            card["disease"] = req.disease
+            card["recommendation"] = "Continue monitoring" if card["risk_level"] == "LOW" else "Investigate signals"
+            risk_card = card
+            break
+        if risk_card is None and weather:
+            w = weather[0]
+            card = rule_based_risk(len(news), w, sent, CONFIG["thresholds"])
+            card["city"] = w["city"]
+            card["disease"] = req.disease
+            card["recommendation"] = "Continue monitoring" if card["risk_level"] == "LOW" else "Investigate signals"
+            risk_card = card
+    except Exception as exc:  # never fail the demo endpoint on signal hiccups
+        risk_card = {"error": str(exc)}
+
+    settlement = proof["settlement"]
+    return {
+        "request": {"query": req.query, "city": req.city, "disease": req.disease, "vertical": req.vertical},
+        "mode": proof["mode"],
+        "live": proof["live"],
+        "ranked_answer": proof["ranked_answer"],
+        # Money-visible (first-class):
+        "miner": proof["miner"],
+        "miner_name": proof["miner_name"],
+        "amount": proof["amount"],
+        "tx_hash": proof["tx_hash"],
+        "network_label": proof["network_label"],
+        "chain_id": proof["chain_id"],
+        "settlement": {
+            "miner": settlement["miner"],
+            "miner_name": settlement["miner_name"],
+            "amount": settlement["amount_usd"],
+            "amount_uusdc": settlement["amount_uusdc"],
+            "tx_hash": settlement["tx_hash"],
+            "network_label": settlement["network_label"],
+            "chain_id": settlement["chain_id"],
+            "rail": settlement["rail"],
+            "receipt_hash": settlement["receipt_hash"],
+            "real_challenge_received": settlement["real_challenge_received"],
+            "mocked": settlement["mocked"],
+        },
+        "risk_card": risk_card,
+        "testnet_boundary": proof["testnet_boundary"],
+    }
+
+
+@app.get("/telegraph/status")
+def telegraph_status():
+    """Testnet boundary stated on screen, unprompted."""
+    return {
+        "live": is_live(),
+        "is_live": is_live(),
+        "mode": "live" if is_live() else "mocked (Mechanism)",
+        "settlement_mode": TELEGRAPH_CONFIG["settlement_mode"],
+        "network_label": TELEGRAPH_CONFIG["network_label"],
+        "chain_id": TELEGRAPH_CONFIG["chain_id"],
+        "chain_caip": TELEGRAPH_CONFIG["chain_caip"],
+        "usdc_address": TELEGRAPH_CONFIG["usdc_address"],
+        "rpc_url": TELEGRAPH_CONFIG["rpc_url"],
+        "explorer_tx_url": TELEGRAPH_CONFIG["explorer_tx_url"],
+        "price_source": TELEGRAPH_CONFIG["price_source"],
+        "miner_selection": TELEGRAPH_CONFIG["miner_selection"],
+        "testnet": True,
+        "testnet_boundary": TELEGRAPH_CONFIG["testnet_boundary"],
+        "last_settlement": _telegraph_client.last_proof,
+        "last_settlement_proof": _telegraph_client.last_proof,
+    }
+
+
+@app.get("/telegraph/intents")
+async def telegraph_intents():
+    """Return available intents from the live miner discovery endpoint (real call)."""
+    import aiohttp as _aiohttp
+    url = TELEGRAPH_CONFIG["engine_url"].rstrip("/") + "/v1/intents"
+    try:
+        async with _aiohttp.ClientSession() as session:
+            async with session.get(url, timeout=_aiohttp.ClientTimeout(total=20)) as r:
+                if r.status != 200:
+                    raise HTTPException(status_code=502, detail=f"intents endpoint HTTP {r.status}")
+                data = await r.json()
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=str(exc))
+    intents = data.get("intents", []) if isinstance(data, dict) else (data if isinstance(data, list) else [])
+    return {
+        "source": "live",
+        "real": True,
+        "count": data.get("count", len(intents)) if isinstance(data, dict) else len(intents),
+        "canonical_on_chain": data.get("canonical_on_chain") if isinstance(data, dict) else None,
+        "with_miners": data.get("with_miners") if isinstance(data, dict) else None,
+        "intents": intents,
+    }
+
+
+@app.get("/telegraph/dashboard")
+def telegraph_dashboard():
+    """Serve the money-visible front-end fragment."""
+    from fastapi.responses import FileResponse
+    import os as _os
+    path = _os.path.join(_os.path.dirname(__file__), "static", "telegraph.html")
+    return FileResponse(path, media_type="text/html")

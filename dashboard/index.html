@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Outbreak Sentinel — Telegraph Buying Layer (Track 03)</title>
+<style>
+  body { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; background:#0b0f14; color:#e6edf3; margin:0; padding:24px; }
+  h1 { color:#58a6ff; font-size:20px; }
+  .banner { background:#3d1f1f; border:1px solid #f85149; color:#f85149; padding:12px 16px; border-radius:6px; margin:12px 0; font-weight:bold; font-size:14px; }
+  .card { background:#161b22; border:1px solid #30363d; border-radius:8px; padding:16px; margin:12px 0; }
+  .row { display:flex; gap:12px; flex-wrap:wrap; align-items:center; }
+  button { background:#238636; color:#fff; border:none; padding:8px 14px; border-radius:6px; cursor:pointer; font-family:inherit; }
+  button:disabled { background:#30363d; cursor:not-allowed; }
+  input, select { background:#0d1117; color:#e6edf3; border:1px solid #30363d; padding:6px 10px; border-radius:6px; font-family:inherit; }
+  .label { color:#8b949e; font-size:12px; text-transform:uppercase; letter-spacing:0.5px; }
+  .value { font-size:14px; word-break:break-all; }
+  .money { color:#f0883e; font-weight:bold; }
+  a { color:#58a6ff; }
+  pre { background:#0d1117; padding:12px; border-radius:6px; overflow:auto; font-size:12px; }
+  .risk { padding:10px; border-radius:6px; margin-top:8px; }
+  .CRITICAL,.HIGH { background:#3d1f1f; border:1px solid #f85149; }
+  .MODERATE { background:#3d2f1f; border:1px solid #d29922; }
+  .LOW { background:#1f3d2a; border:1px solid #3fb950; }
+  .statusbar { display:flex; gap:16px; flex-wrap:wrap; font-size:13px; }
+</style>
+</head>
+<body>
+<h1>Outbreak Sentinel — Telegraph Buying Layer (Track 03)</h1>
+<div class="banner" id="boundary">TESTNET ONLY — loading boundary statement...</div>
+
+<div class="card">
+  <div class="label">Telegraph settlement status</div>
+  <div class="statusbar" style="margin-top:8px;">
+    <div><span class="label">Mode</span><br><span class="value" id="mode">—</span></div>
+    <div><span class="label">Network</span><br><span class="value" id="network">—</span></div>
+    <div><span class="label">Chain ID</span><br><span class="value" id="chainid">—</span></div>
+    <div><span class="label">Live?</span><br><span class="value" id="live">—</span></div>
+    <div><span class="label">Price source</span><br><span class="value" id="price">—</span></div>
+  </div>
+  <div style="margin-top:8px;"><span class="label">Last settlement tx</span><br><span class="value" id="lasttx">none yet</span></div>
+</div>
+
+<div class="card">
+  <div class="label">Run Risk Assessment (paid Telegraph request)</div>
+  <div class="row" style="margin-top:8px;">
+    <input id="query" value="Assess outbreak risk for dengue in Karachi" style="flex:1;min-width:260px;" />
+    <input id="city" placeholder="city (optional)" style="width:140px;" />
+    <select id="vertical">
+      <option value="">(default)</option>
+      <option value="wildfire">wildfire</option>
+      <option value="supply-chain">supply-chain</option>
+      <option value="bio-surveillance">bio-surveillance</option>
+    </select>
+    <button id="run" onclick="runAssessment()">Run Risk Assessment</button>
+  </div>
+</div>
+
+<div class="card" id="result" style="display:none;">
+  <div class="label">Settlement proof (money-visible)</div>
+  <div class="row" style="margin-top:8px;">
+    <div style="flex:1;min-width:200px;"><span class="label">Request</span><br><span class="value" id="r_query">—</span></div>
+  </div>
+  <div class="row" style="margin-top:8px;">
+    <div style="flex:1;min-width:200px;"><span class="label">Miner</span><br><span class="value money" id="r_miner">—</span></div>
+    <div style="flex:1;min-width:200px;"><span class="label">Amount (USD)</span><br><span class="value money" id="r_amount">—</span></div>
+  </div>
+  <div class="row" style="margin-top:8px;">
+    <div style="flex:1;min-width:200px;"><span class="label">Sepolia tx hash</span><br><span class="value money" id="r_tx">—</span></div>
+    <div style="flex:1;min-width:200px;"><span class="label">Network label</span><br><span class="value money" id="r_net">—</span></div>
+  </div>
+  <div style="margin-top:8px;"><span class="label">Clickable tx link</span><br><a id="r_link" href="#" target="_blank">—</a></div>
+  <div style="margin-top:8px;"><span class="label">Mode</span><br><span class="value" id="r_mode">—</span></div>
+
+  <div class="label" style="margin-top:16px;">Ranked intelligence answer</div>
+  <pre id="r_answer">—</pre>
+
+  <div class="label" style="margin-top:16px;">Resulting risk card</div>
+  <div class="risk" id="r_risk">—</div>
+</div>
+
+<script>
+const BASE = window.location.origin;
+let explorerTpl = '';
+async function loadStatus() {
+  const r = await fetch(BASE + '/telegraph/status');
+  const d = await r.json();
+  document.getElementById('boundary').textContent = d.testnet_boundary;
+  document.getElementById('mode').textContent = d.mode;
+  document.getElementById('network').textContent = d.network_label;
+  document.getElementById('chainid').textContent = d.chain_id;
+  document.getElementById('live').textContent = d.live;
+  document.getElementById('price').textContent = d.price_source;
+  explorerTpl = d.explorer_tx_url;
+  if (d.last_settlement && d.last_settlement.tx_hash) {
+    const url = explorerTpl.replace('{tx_hash}', d.last_settlement.tx_hash);
+    document.getElementById('lasttx').innerHTML = '<a href="' + url + '" target="_blank">' + d.last_settlement.tx_hash + '</a>';
+  }
+}
+async function runAssessment() {
+  const btn = document.getElementById('run');
+  btn.disabled = true;
+  btn.textContent = 'Running...';
+  const body = {
+    query: document.getElementById('query').value,
+    city: document.getElementById('city').value || null,
+    vertical: document.getElementById('vertical').value || null
+  };
+  try {
+    const r = await fetch(BASE + '/telegraph/risk', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+    const d = await r.json();
+    document.getElementById('result').style.display = 'block';
+    document.getElementById('r_query').textContent = d.request.query;
+    document.getElementById('r_miner').textContent = d.miner + ' (' + d.miner_name + ')';
+    document.getElementById('r_amount').textContent = d.amount + ' USD';
+    document.getElementById('r_tx').textContent = d.tx_hash;
+    document.getElementById('r_net').textContent = d.network_label;
+    const st = await fetch(BASE + '/telegraph/status').then(x=>x.json());
+    const url = st.explorer_tx_url.replace('{tx_hash}', d.tx_hash);
+    const a = document.getElementById('r_link');
+    a.href = url; a.textContent = url;
+    document.getElementById('r_mode').textContent = d.mode + (d.settlement && d.settlement.mocked ? '  (MOCKED settlement)' : '');
+    document.getElementById('r_answer').textContent = JSON.stringify(d.ranked_answer, null, 2);
+    const rc = d.risk_card || {};
+    document.getElementById('r_risk').className = 'risk ' + (rc.risk_level || '');
+    document.getElementById('r_risk').textContent = (rc.city || '') + ' — ' + (rc.disease || '') + ' — ' + (rc.risk_level || '') + ' (conf ' + (rc.confidence || '') + ') ' + (rc.drivers||[]).join('; ');
+    loadStatus();
+  } catch (e) {
+    alert('Error: ' + e);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Run Risk Assessment';
+  }
+}
+loadStatus();
+</script>
+</body>
+</html>
