@@ -1,0 +1,9 @@
+Every early-warning system has the same flaw: it never keeps score. Anyone can print a red alert. Nobody comes back a week later to say whether they were right.
+
+Outbreak Sentinel fixes that. It fuses news, weather, and social chatter with an LLM into a calibrated risk card, and only when two independent signal families agree. Then it issues a signed receipt: the sha256 of the card, appended to an immutable ledger.
+
+New this build: it does not call APIs directly. It buys ranked intelligence through Telegraph, parallel paid requests, each routed to the highest-ranked miner, each returning a receipt. Settlement on Base Sepolia. The money is on screen: miner, amount, tx hash, network.
+
+A week later we resolve the receipt against a real source, confirmed or refuted. The scoreboard is the honest track record. "Trust our AI" becomes "check our ledger."
+
+Seven verticals, one engine. Add yours in fifty lines. Check our ledger.
