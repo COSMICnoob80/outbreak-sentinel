@@ -10,6 +10,10 @@ from __future__ import annotations
 
 from verticals.base import Location, RiskModel, Vertical
 from verticals.bio_surveillance import BIO_SURVEILLANCE
+from verticals.commodity_disruption import COMMODITY_DISRUPTION
+from verticals.endemic import ENDEMIC
+from verticals.financial_stress import FINANCIAL_STRESS
+from verticals.pandemic import PANDEMIC
 from verticals.supply_chain import SUPPLY_CHAIN
 from verticals.wildfire import WILDFIRE
 
@@ -17,6 +21,10 @@ VERTICALS: dict[str, Vertical] = {
     BIO_SURVEILLANCE.slug: BIO_SURVEILLANCE,
     WILDFIRE.slug: WILDFIRE,
     SUPPLY_CHAIN.slug: SUPPLY_CHAIN,
+    PANDEMIC.slug: PANDEMIC,
+    ENDEMIC.slug: ENDEMIC,
+    COMMODITY_DISRUPTION.slug: COMMODITY_DISRUPTION,
+    FINANCIAL_STRESS.slug: FINANCIAL_STRESS,
 }
 
 
@@ -40,4 +48,8 @@ __all__ = [
     "BIO_SURVEILLANCE",
     "WILDFIRE",
     "SUPPLY_CHAIN",
+    "PANDEMIC",
+    "ENDEMIC",
+    "COMMODITY_DISRUPTION",
+    "FINANCIAL_STRESS",
 ]

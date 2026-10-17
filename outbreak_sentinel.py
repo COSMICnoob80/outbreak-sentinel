@@ -95,7 +95,7 @@ def default_config() -> dict:
             "rain_high": 50.0,
         },
         "groq": {
-            "model": "llama-3.3-70b-versatile",
+            "model": "openai/gpt-oss-120b",
             "api_key_env": "GROQ_API_KEY",
         },
         "lookback_hours": 24,
@@ -147,13 +147,28 @@ async def fetch_news(
         return []
 
 
-async def fetch_weather(session: aiohttp.ClientSession, city: dict) -> dict:
-    """Fetch 7-day forecast from Open-Meteo."""
+async def fetch_weather(
+    session: aiohttp.ClientSession, city: dict, forecast_vars=None
+) -> dict:
+    """Fetch 7-day forecast from Open-Meteo.
+
+    ``forecast_vars`` (from the loaded vertical's ``forecast_vars``) determines
+    which daily variables are requested, so a wildfire vertical actually gets
+    wind + humidity instead of only temp/precip/weathercode.
+    """
+    if not forecast_vars:
+        forecast_vars = (
+            "temperature_2m_max",
+            "temperature_2m_min",
+            "precipitation_sum",
+            "weathercode",
+        )
+    forecast_vars = tuple(forecast_vars)
     url = "https://api.open-meteo.com/v1/forecast"
     params = {
         "latitude": city["lat"],
         "longitude": city["lon"],
-        "daily": "temperature_2m_max,temperature_2m_min,precipitation_sum,weathercode",
+        "daily": ",".join(forecast_vars),
         "timezone": "Asia/Karachi",
         "forecast_days": 7,
     }
@@ -166,15 +181,18 @@ async def fetch_weather(session: aiohttp.ClientSession, city: dict) -> dict:
         times = daily.get("time", [])
         forecast = []
         for i in range(len(times)):
-            forecast.append(
-                {
-                    "date": times[i],
-                    "temp_max": daily.get("temperature_2m_max", [None] * len(times))[i],
-                    "temp_min": daily.get("temperature_2m_min", [None] * len(times))[i],
-                    "precipitation": daily.get("precipitation_sum", [None] * len(times))[i],
-                    "weathercode": daily.get("weathercode", [None] * len(times))[i],
-                }
-            )
+            entry = {"date": times[i]}
+            for var in forecast_vars:
+                vals = daily.get(var, [None] * len(times))
+                entry[var] = vals[i] if i < len(vals) else None
+            # Backward-compat aliases consumed by the rule-based fallback.
+            if "temperature_2m_max" in entry:
+                entry["temp_max"] = entry["temperature_2m_max"]
+            if "temperature_2m_min" in entry:
+                entry["temp_min"] = entry["temperature_2m_min"]
+            if "precipitation_sum" in entry:
+                entry["precipitation"] = entry["precipitation_sum"]
+            forecast.append(entry)
         return {"city": city["name"], "forecast": forecast}
     except Exception as e:
         return {"city": city["name"], "error": str(e)}
@@ -311,6 +329,13 @@ async def fuse_with_groq(
     client = Groq(api_key=api_key)
     model = config["groq"]["model"]
 
+    vertical = config.get("_vertical") or {}
+    forecast_vars = vertical.get("forecast_vars") or [
+        "temperature_2m_max",
+        "precipitation_sum",
+        "weathercode",
+    ]
+
     news_summary = (
         "\n".join(f"- {a['title']}" for a in news_data[:15])
         or "No recent outbreak news."
@@ -319,18 +344,30 @@ async def fuse_with_groq(
     for w in weather_data:
         if "forecast" not in w:
             continue
-        max_temp = max((d.get("temp_max") or 0) for d in w["forecast"])
-        max_rain = max((d.get("precipitation") or 0) for d in w["forecast"])
-        weather_lines.append(
-            f"- {w['city']}: max_temp={max_temp:.1f}°C, max_rain={max_rain:.1f}mm"
-        )
+        stats = []
+        for var in forecast_vars:
+            vals = [d.get(var) for d in w["forecast"] if d.get(var) is not None]
+            if not vals:
+                continue
+            if isinstance(vals[0], bool):
+                continue
+            if isinstance(vals[0], (int, float)):
+                stats.append(f"{var}={max(vals):.1f}")
+            else:
+                stats.append(f"{var}={vals[0]}")
+        weather_lines.append(f"- {w['city']}: " + ", ".join(stats))
     weather_summary = "\n".join(weather_lines) or "No weather data."
     social_summary = (
         "\n".join(f"- {p['title']}" for p in social_data[:15])
         or "No social chatter."
     )
 
-    prompt = f"""You are an outbreak risk analyst for Pakistan. Analyze these signals and produce risk cards.
+    fusion_role = vertical.get("fusion_role", "outbreak risk analyst")
+    subject_label = vertical.get("subject_label", "disease")
+    risk_model = vertical.get("risk_model") or {}
+    escalation = risk_model.get("escalation_rule", "")
+
+    prompt = f"""You are an {fusion_role}. Analyze these signals and produce risk cards.
 
 NEWS SIGNALS:
 {news_summary}
@@ -345,7 +382,7 @@ For each city, output a JSON array of risk cards:
 [
   {{
     "city": "CityName",
-    "disease": "most likely disease from signals",
+    "disease": "most likely {subject_label} from signals",
     "risk_level": "LOW|MODERATE|HIGH|CRITICAL",
     "confidence": 0.0-1.0,
     "drivers": ["driver1", "driver2"],
@@ -354,10 +391,10 @@ For each city, output a JSON array of risk cards:
 ]
 
 Rules:
-- Consider weather: heavy rain + warm temps = mosquito breeding (dengue/malaria)
+- {escalation or "Be conservative: only escalate if multiple signals align"}
+- Consider the weather variables provided as relevant to the domain
 - Consider news frequency: more articles = higher risk
 - Consider sentiment: panic/fear words = higher risk
-- Be conservative: only escalate if multiple signals align
 
 Output ONLY the JSON array, no other text."""
 
@@ -366,7 +403,7 @@ Output ONLY the JSON array, no other text."""
             model=model,
             messages=[{"role": "user", "content": prompt}],
             temperature=0.2,
-            max_tokens=2048,
+            max_tokens=4096,
         )
         result_text = response.choices[0].message.content
         parsed = _extract_json(result_text)
@@ -452,11 +489,27 @@ async def main():
     )
     parser.add_argument("--config", default="config.yaml", help="Path to config file")
     parser.add_argument(
+        "--vertical", default=None,
+        help="Vertical slug to run (e.g. wildfire); overrides --config",
+    )
+    parser.add_argument(
         "--dry-run", action="store_true", help="Run without Groq (rule-based only)"
     )
     args = parser.parse_args()
 
-    config = load_config(args.config)
+    if args.vertical:
+        from verticals import get_vertical
+
+        defaults = default_config()
+        vcfg = get_vertical(args.vertical).to_config()
+        for key, value in vcfg.items():
+            if isinstance(value, dict) and isinstance(defaults.get(key), dict):
+                defaults[key].update(value)
+            else:
+                defaults[key] = value
+        config = defaults
+    else:
+        config = load_config(args.config)
 
     print(f"{C.CYAN}🛰️  Outbreak Sentinel starting...{C.RESET}")
     print(f"   Monitoring {len(config['cities'])} cities, {len(config['diseases'])} diseases")
@@ -475,8 +528,10 @@ async def main():
 
         # Fetch weather
         print(f"{C.DIM}🌤️  Fetching weather...{C.RESET}")
+        _vertical = config.get("_vertical") or {}
+        _forecast_vars = _vertical.get("forecast_vars") or None
         weather_results = await asyncio.gather(
-            *[fetch_weather(session, city) for city in config["cities"]]
+            *[fetch_weather(session, city, _forecast_vars) for city in config["cities"]]
         )
 
         # Fetch social
