@@ -230,3 +230,47 @@ conventions now render `71%`. Found by live-testing `/alerts`, not by report.
 - **Telegraph Season II (Nov 1 – Dec 1, open to all, Track 03)** is the unrestricted runway.
 - Oct 28 is the **AWS CDS** deadline; Telegraph is Nov 1 – Dec 1. Earlier notes conflated these.
 - Full table with per-hackathon angles and live sources: `pitch/HACKATHON-FIT.md`.
+
+---
+
+## 📊 CHECKPOINT 2026-10-17 — Telegraph buying layer LIVE (Track 03 eligibility seam)
+
+### What shipped
+- **`telegraph/client.py`** — real REST seam against Telegraph's documented API: miner
+  discovery (`GET /miners`), ask (`POST /v1/ask`), and the 402 payment challenge.
+  Settlement is **mocked** (no x402 Python SDK / wallet in this env) and every returned
+  proof carries `mode="mocked"` + `real_challenge_received`. This is an honest
+  **Mechanism build** per Track 03: routing + discovery real, denomination standing in.
+- **`telegraph/config.py`** — Chain ID (84532 Base Sepolia), USDC address, RPC, explorer,
+  price source, miner selection, settlement mode all **config values, env-overridable**.
+  `is_live()` + `TESTNET_BOUNDARY` present. Mainnet flip = config change, not code.
+- **`app.py`** (additive) — `POST /telegraph/risk` (paid request → ranked answer +
+  settlement proof + risk card), `GET /telegraph/status` (mode/is_live/chain/network/
+  boundary/last_settlement), `GET /telegraph/intents` (live miner discovery).
+  Existing `/risk`, `/receipts`, `/alerts`, `/health` routes untouched.
+- **`dashboard/index.html`** — vanilla JS money-visible front-end: testnet banner
+  (unprompted), settlement proof panel with clickable Sepolia tx hash, "Run Risk
+  Assessment" button, status bar. No framework, no build step.
+
+### Verified live (TestClient, on disk)
+- `/telegraph/status` → 200, full money-visible field set (miner/amount/tx_hash/
+  network_label/mode/testnet_boundary). `testnet_boundary` present.
+- `/telegraph/intents` → 200, **134 live intents** from the miner discovery endpoint.
+- `/telegraph/risk` → 200, top-level miner/amount/tx_hash/network_label + risk_card.
+- `/health` → 200. `pytest` → 3 passed. Ledger: 1 line, `status: OPEN`, resolved=0.
+
+### Track 03 rules — compliance status
+1. **The agent buys** ✅ — intelligence sourced via Telegraph REST ask, not direct API.
+2. **The money is visible** ✅ — miner/amount/tx_hash/network_label first-class JSON +
+   clickable Sepolia explorer link on the dashboard.
+3. **Machines transact** 🟡 — the ask is autonomous; the settlement leg is mocked
+   (Mechanism). A real wallet/x402 integration is required for the Nov 14 checkpoint.
+
+### The one open line to the Nov 14 checkpoint
+The checkpoint requires **one settled transaction on the board**. Mocked settlement
+does not clear it. Live settlement needs an EVM wallet + x402 client (not installed).
+This is the single highest-leverage remaining task before the checkpoint.
+
+### Eligibility gates (unchanged, verified)
+Telegraph S2 open to all ✅ · Agentware open to all ✅ (reg opens Oct 26) ·
+CodeTheCure/AWS CDS/HETIC/EthnoHack ineligible (students-only / APN-gated).
