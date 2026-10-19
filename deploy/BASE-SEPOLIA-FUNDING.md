@@ -19,14 +19,14 @@ Time: ~10 minutes. Cost: **$0 — this is test money with no real-world value.**
 
 ## The network you're working on
 
-| Thing | Value |
-|---|---|
-| Network name | Base Sepolia (Base's testnet) |
-| Chain ID | `84532` |
-| RPC URL | `https://sepolia.base.org` |
-| Block explorer | `https://sepolia.basescan.org` |
-| Test USDC token contract | `0x036CbD53842c5426634e7929541eC2318f3dCF7e` |
-| Currency symbol | ETH (gas) / USDC, 6 decimals, so 1 USDC = 1,000,000 `amount_uusdc` |
+| Thing                    | Value                                                              |
+| ------------------------ | ------------------------------------------------------------------ |
+| Network name             | Base Sepolia (Base's testnet)                                      |
+| Chain ID                 | `84532`                                                            |
+| RPC URL                  | `https://sepolia.base.org`                                         |
+| Block explorer           | `https://sepolia.basescan.org`                                     |
+| Test USDC token contract | `0x036CbD53842c5426634e7929541eC2318f3dCF7e`                       |
+| Currency symbol          | ETH (gas) / USDC, 6 decimals, so 1 USDC = 1,000,000 `amount_uusdc` |
 
 These match the defaults in `telegraph/config.py` — do not change them per
 environment; the settlement code expects exactly these.
