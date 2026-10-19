@@ -5,50 +5,146 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <meta name="theme-color" content="#58a6ff" />
 <link rel="manifest" href="manifest.json" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
 <title>Outbreak Sentinel — Telegraph Buying Layer (Track 03)</title>
 <style>
-  body { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; background:#0b0f14; color:#e6edf3; margin:0; padding:24px; }
-  h1 { color:#58a6ff; font-size:20px; }
-  .banner { background:#3d1f1f; border:1px solid #f85149; color:#f85149; padding:12px 16px; border-radius:6px; margin:12px 0; font-weight:bold; font-size:14px; }
-  .card { background:#161b22; border:1px solid #30363d; border-radius:8px; padding:16px; margin:12px 0; }
-  .row { display:flex; gap:12px; flex-wrap:wrap; align-items:center; }
-  button { background:#238636; color:#fff; border:none; padding:8px 14px; border-radius:6px; cursor:pointer; font-family:inherit; }
-  button:disabled { background:#30363d; cursor:not-allowed; }
-  input, select { background:#0d1117; color:#e6edf3; border:1px solid #30363d; padding:6px 10px; border-radius:6px; font-family:inherit; }
-  .label { color:#8b949e; font-size:12px; text-transform:uppercase; letter-spacing:0.5px; }
-  .value { font-size:14px; word-break:break-all; }
-  .money { color:#f0883e; font-weight:bold; }
-  a { color:#58a6ff; }
-  pre { background:#0d1117; padding:12px; border-radius:6px; overflow:auto; font-size:12px; }
-  .risk { padding:10px; border-radius:6px; margin-top:8px; }
-  .CRITICAL,.HIGH { background:#3d1f1f; border:1px solid #f85149; }
-  .MODERATE { background:#3d2f1f; border:1px solid #d29922; }
-  .LOW { background:#1f3d2a; border:1px solid #3fb950; }
-  .statusbar { display:flex; gap:16px; flex-wrap:wrap; font-size:13px; }
+  /* ---- Harvested tokens (Linear.app.md, reverse-engineered): luminance-stacked
+         translucent surfaces, whisper-thin white borders, single accent, 8px grid ---- */
+  :root{
+    --bg:#08090a; --panel:#0f1011; --surface:rgba(255,255,255,.03); --surface-hi:rgba(255,255,255,.055);
+    --border-sub:rgba(255,255,255,.05); --border:rgba(255,255,255,.08);
+    --text:#f7f8f8; --text2:#d0d6e0; --text3:#8a8f98; --text4:#62666d;
+    --accent:#5e6ad2; --accent-hi:#828fff;
+    --ok:#27a644; --warn:#d29922; --bad:#f85149;
+    --radius:10px; --mono:'JetBrains Mono',ui-monospace,SFMono-Regular,Menlo,monospace;
+  }
+  *{box-sizing:border-box}
+  body{font-family:'Inter',system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;
+    background:var(--bg);color:var(--text);margin:0;padding:24px 20px 48px;line-height:1.5}
+  .wrap{max-width:1100px;margin:0 auto}
+  h1{font-size:26px;font-weight:600;letter-spacing:-.55px;margin:4px 0 2px}
+  .sub{color:var(--text3);font-size:13px;margin:0 0 16px}
+  .eyebrow{font-size:10px;font-weight:600;letter-spacing:1.6px;text-transform:uppercase;color:var(--text4)}
+  .card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);
+    padding:18px 20px;margin:0 0 16px;transition:background .15s ease,border-color .15s ease}
+  .card:hover{background:var(--surface-hi);border-color:rgba(255,255,255,.13)}
+  .microlabel{font-size:10px;font-weight:600;letter-spacing:1.2px;text-transform:uppercase;color:var(--text4)}
+  .mono{font-family:var(--mono);font-size:13px}
+  .value{font-size:14px;word-break:break-all;color:var(--text2)}
+  .money{color:#f0883e;font-weight:500}
+  a{color:var(--accent-hi);text-decoration:none}
+  a:hover{color:#a5a2ff}
+  a:focus-visible,input:focus-visible,select:focus-visible,button:focus-visible{outline:2px solid var(--accent-hi);outline-offset:2px}
+
+  /* banners */
+  .banner{border:1px solid var(--border);border-radius:8px;padding:10px 14px;margin:0 0 16px;
+    background:rgba(255,255,255,.02);color:var(--text3);font-size:12.5px;display:flex;gap:10px;align-items:center}
+  .banner .dot{width:7px;height:7px;border-radius:50%;background:var(--warn);flex:none}
+  #offline-banner{background:#2a1414;border-color:rgba(248,81,73,.45);color:#ff8b84}
+  #offline-banner .dot{background:var(--bad)}
+  .err{background:#2a1414;border:1px solid rgba(248,81,73,.45);border-radius:8px;color:#ff9d96;
+    padding:12px 14px;margin:0 0 16px;display:none;align-items:center;gap:12px;flex-wrap:wrap}
+  .err button{margin-left:auto}
+
+  /* buttons / inputs */
+  button{background:var(--accent);color:#fff;border:none;padding:9px 16px;border-radius:7px;cursor:pointer;
+    font-family:inherit;font-size:13px;font-weight:500;transition:background .15s ease,opacity .15s ease;letter-spacing:-.1px}
+  button:hover{background:var(--accent-hi)}
+  button:disabled{opacity:.45;cursor:not-allowed}
+  .btn-ghost{background:rgba(255,255,255,.04);color:var(--text2);border:1px solid var(--border)}
+  .btn-ghost:hover{background:rgba(255,255,255,.08);color:var(--text)}
+  input,select{background:rgba(255,255,255,.02);color:var(--text);border:1px solid var(--border);
+    padding:8px 11px;border-radius:7px;font-family:inherit;font-size:13px}
+  input::placeholder{color:var(--text4)}
+  .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+
+  /* metric strip (FR-03) */
+  .strip{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:10px;margin-top:12px}
+  .metric{background:rgba(255,255,255,.02);border:1px solid var(--border-sub);border-radius:8px;padding:10px 12px}
+  .metric .v{font-size:15px;font-weight:500;color:var(--text);margin-top:4px;
+    font-variant-numeric:tabular-nums;overflow:hidden;text-overflow:ellipsis;display:flex;gap:8px;align-items:center}
+  .metric .v .mono{font-size:12px}
+  .livedot{width:7px;height:7px;border-radius:50%;background:var(--text4);flex:none}
+  .livedot.on{background:var(--ok);box-shadow:0 0 6px rgba(39,166,68,.7)}
+
+  /* risk level chips (FR-06/07) */
+  .chip{display:inline-flex;align-items:center;gap:6px;padding:3px 10px;border-radius:9999px;
+    font-size:11px;font-weight:500;letter-spacing:.3px;border:1px solid var(--border)}
+  .chip::before{content:'';width:7px;height:7px;border-radius:50%;background:currentColor;flex:none}
+  .chip.CRITICAL,.chip.HIGH,.chip.ERROR{background:#3d1f1f;border-color:rgba(248,81,73,.5);color:#ff8b84}
+  .chip.MODERATE,.chip.MEDIUM{background:#3a2d14;border-color:rgba(210,153,34,.5);color:#e3b341}
+  .chip.LOW,.chip.INFORMATIONAL,.chip.MINIMAL{background:#14291c;border-color:rgba(63,185,80,.45);color:#4ac26b}
+  @keyframes pulse{0%,100%{transform:scale(1)}50%{transform:scale(1.05)}}
+  .chip.pulse{animation:pulse 1.6s ease-in-out 2;border-color:rgba(248,81,73,.8)}
+
+  /* intelligence card anatomy (FR-06) */
+  .ic-top{display:flex;gap:14px;align-items:flex-start;flex-wrap:wrap;margin-top:12px}
+  .hint-visual{background:radial-gradient(120px 44px at 18% 20%,rgba(94,106,210,.35),transparent),
+      radial-gradient(90px 40px at 80% 90%,rgba(94,106,210,.18),transparent);
+    border:1px solid var(--border-sub);border-radius:8px;padding:10px 12px;display:flex;gap:10px;align-items:center}
+  .hint-glyph{font-family:var(--mono);color:var(--accent-hi);font-size:16px;letter-spacing:2px}
+  .hint-text{font-size:11px;color:var(--text3);font-style:italic}
+  .summary{border-left:2px solid var(--accent);padding:2px 0 2px 12px;margin-top:12px;
+    font-size:14px;color:var(--text2);letter-spacing:-.07px}
+  .sparkwrap{margin-top:14px}
+  .spark{display:block;width:100%;height:56px}
+  .spark-foot{display:flex;justify-content:space-between;color:var(--text3);font-size:11px;margin-top:4px}
+  .drivers{margin-top:12px;font-size:13px;color:var(--text3);line-height:1.65}
+  .drivers b{color:var(--text2);font-weight:500}
+  .srcs{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}
+  .src{display:inline-flex;gap:6px;align-items:center;padding:4px 11px;border-radius:9999px;
+    border:1px solid var(--border);background:rgba(255,255,255,.02);font-size:12px;color:var(--text2);
+    transition:border-color .15s ease,background .15s ease;max-width:280px}
+  .src:hover{border-color:var(--accent-hi);background:rgba(94,106,210,.12);color:var(--text)}
+  .src .n{font-family:var(--mono);font-size:10px;color:var(--text4)}
+  .src span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .risk-body{padding:0}
+
+  /* skeleton shimmer (FR-04) */
+  .sk{border-radius:6px;background:rgba(255,255,255,.05);position:relative;overflow:hidden}
+  .sk::after{content:'';position:absolute;inset:0;transform:translateX(-100%);
+    background:linear-gradient(90deg,transparent,rgba(255,255,255,.09),transparent);
+    animation:shimmer 2.2s infinite}
+  @keyframes shimmer{100%{transform:translateX(100%)}}
+  .sk-title{height:14px;width:38%}.sk-line{height:11px;width:75%}.sk-chip{height:20px;width:96px;border-radius:9999px}
+  @media (prefers-reduced-motion:reduce){
+    .sk::after{animation:none}
+    .chip.pulse{animation:none}
+    .card,button,.src{transition:none}
+  }
+  #empty{display:none;padding:28px 8px 10px;text-align:center;color:var(--text4);font-size:13px}
+  @media (max-width:640px){body{padding:16px 12px 32px}.wrap{max-width:100%}}
 </style>
 </head>
 <body>
-<div id="offline-banner" style="display:none;background:#3d1f1f;border:1px solid #f85149;color:#f85149;padding:8px 12px;border-radius:6px;margin-bottom:12px;font-weight:bold;">You are offline — shell cached, API unreachable.</div>
-<h1>Outbreak Sentinel — Telegraph Buying Layer (Track 03)</h1>
-<div class="banner" id="boundary">TESTNET ONLY — loading boundary statement...</div>
+<div class="wrap">
+<div id="offline-banner" class="banner" style="display:none;"><span class="dot"></span>You are offline — shell cached, API unreachable.</div>
+
+<header>
+  <div class="eyebrow">Telegraph Buying Layer · Track 03</div>
+  <h1>Outbreak Sentinel</h1>
+  <p class="sub">Agentic bio-surveillance early warning — testnet settlements are money-visible on every call.</p>
+</header>
+<div class="banner"><span class="dot"></span><span id="boundary">TESTNET ONLY — loading boundary statement...</span></div>
 
 <div class="card">
-  <div class="label">Telegraph settlement status</div>
-  <div class="statusbar" style="margin-top:8px;">
-    <div><span class="label">Mode</span><br><span class="value" id="mode">—</span></div>
-    <div><span class="label">Network</span><br><span class="value" id="network">—</span></div>
-    <div><span class="label">Chain ID</span><br><span class="value" id="chainid">—</span></div>
-    <div><span class="label">Live?</span><br><span class="value" id="live">—</span></div>
-    <div><span class="label">Price source</span><br><span class="value" id="price">—</span></div>
+  <div class="microlabel">Telegraph settlement status</div>
+  <div class="strip">
+    <div class="metric"><div class="microlabel">Mode</div><div class="v" id="mode">—</div></div>
+    <div class="metric"><div class="microlabel">Network</div><div class="v" id="network">—</div></div>
+    <div class="metric"><div class="microlabel">Chain ID</div><div class="v mono" id="chainid">—</div></div>
+    <div class="metric"><div class="microlabel">Live?</div><div class="v"><span class="livedot" id="livedot"></span><span id="live">—</span></div></div>
+    <div class="metric"><div class="microlabel">Price source</div><div class="v" id="price">—</div></div>
   </div>
-  <div style="margin-top:8px;"><span class="label">Last settlement tx</span><br><span class="value" id="lasttx">none yet</span></div>
+  <div style="margin-top:12px"><span class="microlabel">Last settlement tx</span><br><span class="value mono" id="lasttx">none yet</span></div>
 </div>
 
 <div class="card">
-  <div class="label">Run Risk Assessment (paid Telegraph request)</div>
-  <div class="row" style="margin-top:8px;">
-    <input id="query" value="Assess outbreak risk for dengue in Karachi" style="flex:1;min-width:260px;" />
-    <input id="city" placeholder="city (optional)" style="width:140px;" />
+  <div class="microlabel">Run risk assessment — paid Telegraph request</div>
+  <div class="row" style="margin-top:10px">
+    <input id="query" value="Assess outbreak risk for dengue in Karachi" style="flex:1;min-width:260px" />
+    <input id="city" placeholder="city (optional)" style="width:140px" />
     <select id="vertical">
       <option value="">(default)</option>
       <option value="wildfire">wildfire</option>
@@ -59,93 +155,237 @@
   </div>
 </div>
 
-<div class="card" id="result" style="display:none;">
-  <div class="label">Settlement proof (money-visible)</div>
-  <div class="row" style="margin-top:8px;">
-    <div style="flex:1;min-width:200px;"><span class="label">Request</span><br><span class="value" id="r_query">—</span></div>
-  </div>
-  <div class="row" style="margin-top:8px;">
-    <div style="flex:1;min-width:200px;"><span class="label">Miner</span><br><span class="value money" id="r_miner">—</span></div>
-    <div style="flex:1;min-width:200px;"><span class="label">Amount (USD)</span><br><span class="value money" id="r_amount">—</span></div>
-  </div>
-  <div class="row" style="margin-top:8px;">
-    <div style="flex:1;min-width:200px;"><span class="label">Sepolia tx hash</span><br><span class="value money" id="r_tx">—</span></div>
-    <div style="flex:1;min-width:200px;"><span class="label">Network label</span><br><span class="value money" id="r_net">—</span></div>
-  </div>
-  <div style="margin-top:8px;"><span class="label">Clickable tx link</span><br><a id="r_link" href="#" target="_blank">—</a></div>
-  <div style="margin-top:8px;"><span class="label">Mode</span><br><span class="value" id="r_mode">—</span></div>
+<div id="error-box" class="err"><span id="error-msg">Failed.</span>
+  <button class="btn-ghost" id="retry" onclick="runAssessment()">Retry</button>
+</div>
 
-  <div class="label" style="margin-top:16px;">Ranked intelligence answer</div>
-  <pre id="r_answer">—</pre>
+<!-- FR-04: skeleton predicts final card shape; FR-05 empty state -->
+<div class="card" id="result" style="display:none">
+  <div class="microlabel">Settlement proof — money-visible</div>
+  <div class="strip">
+    <div class="metric" style="min-width:220px;flex:1"><div class="microlabel">Request</div><div class="value" id="r_query">—</div></div>
+    <div class="metric"><div class="microlabel">Miner</div><div class="value money" id="r_miner">—</div></div>
+    <div class="metric"><div class="microlabel">Amount (USD)</div><div class="value money" id="r_amount">—</div></div>
+    <div class="metric" style="min-width:220px;flex:1"><div class="microlabel">Transaction</div><div class="value mono" id="r_link">—</div></div>
+    <div class="metric"><div class="microlabel">Mode</div><div class="value" id="r_mode">—</div></div>
+  </div>
 
-  <div class="label" style="margin-top:16px;">Resulting risk card</div>
-  <div class="risk" id="r_risk">—</div>
+  <div id="empty">No intelligence card yet. Run your first paid assessment to generate one.</div>
+
+  <div id="skeleton" style="display:none;margin-top:18px">
+    <div class="ic-top"><div class="sk sk-chip"></div><div class="sk sk-title" style="flex:1"></div></div>
+    <div class="sk sk-line" style="margin-top:12px"></div>
+    <div class="sk sk-line" style="width:55%;margin-top:8px"></div>
+    <div class="sk" style="height:56px;margin-top:14px"></div>
+    <div class="sk sk-line" style="width:70%;margin-top:12px"></div>
+    <div style="display:flex;gap:8px;margin-top:14px"><div class="sk sk-line" style="width:150px;border-radius:9999px"></div><div class="sk sk-line" style="width:180px;border-radius:9999px"></div></div>
+  </div>
+
+  <div class="risk-microlabel" style="margin-top:22px" id="r_risk_label"></div>
+  <div class="risk-body" id="r_risk" style="display:none"></div>
+</div>
 </div>
 
 <script>
 const BASE = window.location.origin;
 let explorerTpl = '';
+
+function show(id, on){ const el = document.getElementById(id); if (el) el.style.display = on ? '' : 'none'; }
+function errShow(msg){ document.getElementById('error-msg').textContent = msg; show('error-box', true); }
+function errHide(){ show('error-box', false); }
+function setText(id, v){ const el = document.getElementById(id); if (el) el.textContent = (v === null || v === undefined || v === '') ? '—' : v; }
+
 async function loadStatus() {
-  const r = await fetch(BASE + '/telegraph/status');
-  const d = await r.json();
-  document.getElementById('boundary').textContent = d.testnet_boundary;
-  document.getElementById('mode').textContent = d.mode;
-  document.getElementById('network').textContent = d.network_label;
-  document.getElementById('chainid').textContent = d.chain_id;
-  document.getElementById('live').textContent = d.live;
-  document.getElementById('price').textContent = d.price_source;
-  explorerTpl = d.explorer_tx_url;
-  if (d.last_settlement && d.last_settlement.tx_hash) {
-    const url = explorerTpl.replace('{tx_hash}', d.last_settlement.tx_hash);
-    document.getElementById('lasttx').innerHTML = '<a href="' + url + '" target="_blank">' + d.last_settlement.tx_hash + '</a>';
-  }
+  try {
+    const r = await fetch(BASE + '/telegraph/status');
+    const d = await r.json();
+    setText('boundary', d.testnet_boundary);
+    setText('mode', d.mode);
+    setText('network', d.network_label);
+    setText('chainid', d.chain_id);
+    setText('live', d.live ? 'yes' : 'no');
+    document.getElementById('livedot').classList.toggle('on', !!d.live);
+    setText('price', d.price_source);
+    explorerTpl = d.explorer_tx_url || '';
+    if (d.last_settlement && d.last_settlement.tx_hash) {
+      const lasttx = document.getElementById('lasttx');
+      lasttx.innerHTML = '';
+      const a = document.createElement('a');
+      a.href = explorerTpl.replace('{tx_hash}', d.last_settlement.tx_hash);
+      a.target = '_blank'; a.rel = 'noopener noreferrer';
+      a.textContent = d.last_settlement.tx_hash;
+      lasttx.appendChild(a);
+    }
+  } catch (e) { console.warn('status load failed', e); }
 }
+
+/* FR-06: sparkline — pure inline SVG from [{label,value}], clamped, no dependency */
+function buildSparkline(chart) {
+  const pts = chart.map(p => Number(p.value)).map(v => isFinite(v) ? v : 0);
+  if (!pts.length) return null;
+  const W = 400, H = 96, PAD = 6;
+  let min = Math.min(...pts), max = Math.max(...pts);
+  if (min === max) { min = min - 1; max = max + 1; }
+  const x = (i) => PAD + (pts.length === 1 ? (W / 2 - PAD) : i * (W - 2 * PAD) / (pts.length - 1));
+  const y = (v) => H - PAD + 2 - (v - min) / (max - min) * (H - 2 * PAD - 4);
+  const svgNS = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(svgNS, 'svg');
+  svg.setAttribute('viewBox', '0 0 ' + W + ' ' + H);
+  svg.setAttribute('preserveAspectRatio', 'none');
+  svg.setAttribute('class', 'spark');
+  const g = document.createElementNS(svgNS, 'linearGradient');
+  g.id = 'sparkfill'; g.setAttribute('x1', '0'); g.setAttribute('y1', '0'); g.setAttribute('x2', '0'); g.setAttribute('y2', '1');
+  const s1 = document.createElementNS(svgNS, 'stop'); s1.setAttribute('offset', '0%'); s1.setAttribute('stop-color', '#7170ff'); s1.setAttribute('stop-opacity', '.28');
+  const s2 = document.createElementNS(svgNS, 'stop'); s2.setAttribute('offset', '100%'); s2.setAttribute('stop-color', '#7170ff'); s2.setAttribute('stop-opacity', '0');
+  g.appendChild(s1); g.appendChild(s2); svg.appendChild(g);
+  const linePts = pts.map((v, i) => x(i).toFixed(1) + ',' + y(v).toFixed(1)).join(' ');
+  const area = document.createElementNS(svgNS, 'polygon');
+  area.setAttribute('points', x(0).toFixed(1) + ',' + (H - 2) + ' ' + linePts + ' ' + x(pts.length - 1).toFixed(1) + ',' + (H - 2));
+  area.setAttribute('fill', 'url(#sparkfill)'); area.setAttribute('stroke', 'none');
+  const line = document.createElementNS(svgNS, 'polyline');
+  line.setAttribute('points', linePts); line.setAttribute('fill', 'none');
+  line.setAttribute('stroke', '#7170ff'); line.setAttribute('stroke-width', '3'); line.setAttribute('stroke-linejoin', 'round'); line.setAttribute('stroke-linecap', 'round');
+  svg.appendChild(area); svg.appendChild(line);
+
+  const wrap = document.createElement('div'); wrap.className = 'sparkwrap';
+  const title = document.createElement('div'); title.className = 'microlabel'; title.textContent = 'signal trend';
+  const last = chart[chart.length - 1];
+  const foot = document.createElement('div'); foot.className = 'spark-foot mono';
+  const spanL = document.createElement('span'); spanL.textContent = chart[0].label || '';
+  const spanR = document.createElement('span'); spanR.textContent = (last.label || '') + ': ' + last.value + (chart.length > 1 ? '  ·  Δ ' + (pts[pts.length - 1] - pts[0] >= 0 ? '+' : '') + (pts[pts.length - 1] - pts[0]).toFixed(1) : '');
+  foot.appendChild(spanL); foot.appendChild(spanR);
+  wrap.appendChild(title); wrap.appendChild(svg); wrap.appendChild(foot);
+  return wrap;
+}
+
+/* FR-06: intelligence card anatomy — all four new fields optional, degrade silently */
+function renderRiskCard(rc) {
+  const host = document.getElementById('r_risk');
+  host.innerHTML = '';
+  setText('r_risk_label', 'Resulting intelligence card');
+  const level = rc.risk_level || '';
+  const conf = rc.confidence || '';
+
+  const top = document.createElement('div'); top.className = 'ic-top';
+  if (level) {
+    const chip = document.createElement('span');
+    chip.className = 'chip ' + level;
+    chip.textContent = level;
+    if (level === 'HIGH' || level === 'CRITICAL') chip.classList.add('pulse');
+    top.appendChild(chip);
+  }
+  const title = document.createElement('div');
+  title.className = 'value'; title.style.cssText = 'flex:1;min-width:180px;font-size:15px;font-weight:500;color:var(--text);letter-spacing:-.2px';
+  title.textContent = ((rc.city || 'Unknown place') + ' · ' + (rc.disease || 'unspecified') + (conf ? '  —  confidence ' + conf : ''));
+  top.appendChild(title);
+  if (top.children.length) host.appendChild(top);
+
+  /* optional illustration_hint → thematic glyph + caption strip */
+  if (rc.illustration_hint) {
+    const hv = document.createElement('div'); hv.className = 'hint-visual';
+    hv.style.marginTop = '12px';
+    const glyph = document.createElement('span'); glyph.className = 'hint-glyph'; glyph.textContent = '◈ ◦ ◈';
+    const cap = document.createElement('span'); cap.className = 'hint-text'; cap.textContent = rc.illustration_hint;
+    hv.appendChild(glyph); hv.appendChild(cap); host.appendChild(hv);
+  }
+
+  /* optional summary */
+  if (rc.summary) {
+    const s = document.createElement('div'); s.className = 'summary'; s.textContent = rc.summary;
+    host.appendChild(s);
+  }
+
+  /* optional chart → sparkline */
+  if (Array.isArray(rc.chart) && rc.chart.length) {
+    const spark = buildSparkline(rc.chart);
+    if (spark) host.appendChild(spark);
+  }
+
+  if (Array.isArray(rc.drivers) && rc.drivers.length) {
+    const d = document.createElement('div'); d.className = 'drivers';
+    d.append('Driving signals: ');
+    const dd = document.createElement('div'); dd.textContent = rc.drivers.join(' · ');
+    d.appendChild(dd);
+    host.appendChild(d);
+  }
+
+  /* optional sources → citation chips */
+  if (Array.isArray(rc.sources) && rc.sources.length) {
+    const srcs = document.createElement('div'); srcs.className = 'srcs';
+    rc.sources.forEach((s, i) => {
+      if (!s || !s.url) return;
+      const a = document.createElement('a');
+      a.href = s.url; a.target = '_blank'; a.rel = 'noopener noreferrer'; a.className = 'src';
+      a.title = s.title || s.url;
+      a.appendChild(Object.assign(document.createElement('span'), { className: 'n', textContent: '[' + (i + 1) + ']' }));
+      a.appendChild(Object.assign(document.createElement('span'), { textContent: s.title || s.url }));
+      srcs.appendChild(a);
+    });
+    if (srcs.children.length) host.appendChild(srcs);
+  }
+
+  const pixel = document.createElement('div');
+  pixel.style.cssText = 'margin-top:14px;color:var(--text4);font-size:11px;font-family:var(--mono)';
+  pixel.textContent = 'surveillance, not diagnosis · ' + (level || 'level unknown') + (conf ? ' · conf ' + conf : '');
+  host.appendChild(pixel);
+  show('r_risk', true);
+}
+
 async function runAssessment() {
   const btn = document.getElementById('run');
   btn.disabled = true;
-  btn.textContent = 'Running...';
+  btn.textContent = 'Running…';
+  errHide();
+  show('result', true);
+  show('empty', false);
+  show('skeleton', true);           /* FR-04 skeleton resolves into real shape */
+  show('r_risk', false);
+  setText('r_risk_label', 'Generating intelligence card…');
   const body = {
     query: document.getElementById('query').value,
     city: document.getElementById('city').value || null,
     vertical: document.getElementById('vertical').value || null
   };
   try {
-    const r = await fetch(BASE + '/telegraph/risk', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+    const r = await fetch(BASE + '/telegraph/risk', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
     const d = await r.json();
-    document.getElementById('result').style.display = 'block';
-    document.getElementById('r_query').textContent = d.request.query;
-    document.getElementById('r_miner').textContent = d.miner + ' (' + d.miner_name + ')';
-    document.getElementById('r_amount').textContent = d.amount + ' USD';
-    document.getElementById('r_tx').textContent = d.tx_hash;
-    document.getElementById('r_net').textContent = d.network_label;
-    const st = await fetch(BASE + '/telegraph/status').then(x=>x.json());
+    show('skeleton', false);
+    setText('r_query', d.request.query);
+    setText('r_miner', d.miner + ' (' + d.miner_name + ')');
+    setText('r_amount', d.amount + ' USD');
+    setText('r_mode', d.mode + (d.settlement && d.settlement.mocked ? '  (MOCKED settlement)' : ''));
+    const link = document.getElementById('r_link');
+    link.innerHTML = '';
+    const st = await fetch(BASE + '/telegraph/status').then(x => x.json());
     const url = st.explorer_tx_url.replace('{tx_hash}', d.tx_hash);
-    const a = document.getElementById('r_link');
-    a.href = url; a.textContent = url;
-    document.getElementById('r_mode').textContent = d.mode + (d.settlement && d.settlement.mocked ? '  (MOCKED settlement)' : '');
-    document.getElementById('r_answer').textContent = JSON.stringify(d.ranked_answer, null, 2);
-    const rc = d.risk_card || {};
-    document.getElementById('r_risk').className = 'risk ' + (rc.risk_level || '');
-    document.getElementById('r_risk').textContent = (rc.city || '') + ' — ' + (rc.disease || '') + ' — ' + (rc.risk_level || '') + ' (conf ' + (rc.confidence || '') + ') ' + (rc.drivers||[]).join('; ');
+    const a = document.createElement('a');
+    a.href = url; a.target = '_blank'; a.rel = 'noopener noreferrer'; a.textContent = (d.tx_hash || '—');
+    link.appendChild(a);
+    if (d.risk_card && !d.risk_card.error) renderRiskCard(d.risk_card);
+    else if (d.risk_card && d.risk_card.error) errShow('Assessment was paid, but the card engine hiccupped: ' + d.risk_card.error);
+    else setText('r_risk_label', 'No risk card returned');
     loadStatus();
   } catch (e) {
-    alert('Error: ' + e);
+    show('result', false);
+    errShow('Request failed — network or API unreachable. ' + e);
   } finally {
+    show('result', true);
     btn.disabled = false;
     btn.textContent = 'Run Risk Assessment';
   }
 }
+
 loadStatus();
 
-// PWA service worker registration
+/* PWA service worker registration */
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('service-worker.js').catch(function (e) { console.warn('SW register failed', e); });
 }
 
-// Offline state detection
+/* Offline state detection */
 function updateOffline() {
   const b = document.getElementById('offline-banner');
-  if (b) b.style.display = navigator.onLine ? 'none' : 'block';
+  if (b) b.style.display = navigator.onLine ? 'none' : 'flex';
 }
 window.addEventListener('online', updateOffline);
 window.addEventListener('offline', updateOffline);
