@@ -154,6 +154,11 @@ class RiskCard(BaseModel):
     confidence: float
     drivers: list[str]
     recommendation: str
+    # Optional extras (additive, backwards-compatible):
+    sources: Optional[list[dict]] = None       # [{title, url}] — real news items
+    summary: Optional[str] = None              # LLM narrative (or rule-based when LLM down)
+    chart: Optional[list[dict]] = None         # [{label, value}] — 7-day forecast sparkline
+    illustration_hint: Optional[str] = None    # machine string for dashboard art
 
 class RiskResponse(BaseModel):
     timestamp: str
@@ -163,6 +168,8 @@ class RiskResponse(BaseModel):
 
 
 _CARD_KEYS = ("city", "disease", "risk_level", "confidence", "drivers", "recommendation")
+_CARD_EXTRA_KEYS = ("sources", "summary", "chart", "illustration_hint")
+_CARD_FIELDS = _CARD_KEYS + _CARD_EXTRA_KEYS
 
 
 def _norm_card(c: dict, disease: str, fallback: dict | None = None) -> dict:
@@ -177,7 +184,7 @@ def _norm_card(c: dict, disease: str, fallback: dict | None = None) -> dict:
     drivers = c.get("drivers") or base.get("drivers") or []
     if isinstance(drivers, str):
         drivers = [drivers]
-    return {
+    card = {
         "city": str(c.get("city") or base.get("city") or "Unknown"),
         "disease": str(c.get("disease") or disease),
         "risk_level": level,
@@ -185,6 +192,84 @@ def _norm_card(c: dict, disease: str, fallback: dict | None = None) -> dict:
         "drivers": [str(d) for d in drivers][:6],
         "recommendation": str(c.get("recommendation") or base.get("recommendation") or "Investigate signals"),
     }
+    # Pass through optional fused-engine extras when the LLM supplied them.
+    summary = str(c.get("summary") or base.get("summary") or "").strip()
+    if summary:
+        card["summary"] = summary
+    for key in ("sources", "chart", "illustration_hint"):
+        if c.get(key):
+            card[key] = c[key]
+    return card
+
+
+def _weather_by_city(weather: list) -> dict:
+    return {w["city"].lower(): w for w in weather if isinstance(w, dict) and w.get("city") and "forecast" in w}
+
+
+def _pick_sources(news: list, city: str, disease: str, limit: int = 5) -> list[dict]:
+    """Real news items from collect_signals, matching the card's city then disease."""
+    city_low, disease_low = city.lower(), disease.lower()
+    seen, picked = set(), []
+    ranked = []
+    ranked = [n for n in news if city_low in (n.get("title") or "").lower()]
+    ranked += [n for n in news if disease_low in (n.get("title") or "").lower()]
+    for n in ranked:
+        key = (n.get("title") or "", n.get("link") or "")
+        if key in seen:
+            continue
+        seen.add(key)
+        picked.append({"title": n.get("title") or "", "url": n.get("link") or ""})
+        if len(picked) >= limit:
+            break
+    return picked
+
+
+def _sparkline(weather: dict | None) -> list[dict]:
+    """7-day forecast sparkline (real open-meteo data): precipitation over next week."""
+    if not isinstance(weather, dict):
+        return []
+    out = []
+    for d in (weather.get("forecast") or [])[:7]:
+        val = d.get("precipitation")
+        if val is None:
+            continue
+        out.append({"label": str(d.get("date", "")), "value": round(float(val), 1)})
+    return out
+
+
+def _illustration_hint(card: dict, weather: dict | None) -> str:
+    level = (card.get("risk_level") or "LOW").lower()
+    disease = str(card.get("disease") or "disease").lower()
+    cue = "clear"
+    forecast = (weather or {}).get("forecast", [])
+    if forecast:
+        max_rain = max((d.get("precipitation") or 0) for d in forecast)
+        max_temp = max((d.get("temp_max") or 0) for d in forecast)
+        if max_rain >= 10:
+            cue = "rain"
+        elif max_temp >= 35:
+            cue = "heat"
+    return f"{disease}-{cue}-{level}"
+
+
+def _attach_card_extras(cards: list, news: list, weather_map: dict, disease: str) -> list:
+    """Attach sources/summary/chart/illustration_hint — additive, authentic only."""
+    for card in cards:
+        city = card.get("city", "Unknown")
+        w = weather_map.get(str(city).lower())
+        if card.get("sources") is None:
+            card["sources"] = _pick_sources(news, str(city), disease)
+        if card.get("chart") is None:
+            card["chart"] = _sparkline(w)
+        if card.get("illustration_hint") is None:
+            card["illustration_hint"] = _illustration_hint(card, w)
+        if not card.get("summary"):
+            drivers = card.get("drivers") or []
+            top = "; ".join(drivers[:2]) if drivers else "no strong signals in the lookback window"
+            card["summary"] = (
+                f"{city} shows {card.get('risk_level', 'LOW')} risk for {card.get('disease', disease)}: {top}."
+            )
+    return cards
 
 
 async def _fuse_or_rule_based(news, weather, social, sent, disease, city=None):
@@ -228,6 +313,7 @@ async def get_risk(city: Optional[str] = None, disease: str = "dengue"):
         raise HTTPException(status_code=504, detail="Signal collection timed out")
 
     cards, engine = await _fuse_or_rule_based(news, weather, social, sent, disease, city)
+    cards = _attach_card_extras(cards, news, _weather_by_city(weather), disease)
     if city and not cards:
         raise HTTPException(status_code=404, detail=f"No data for city: {city}")
 
@@ -235,7 +321,7 @@ async def get_risk(city: Optional[str] = None, disease: str = "dengue"):
     return RiskResponse(
         timestamp=now,
         signals={"news": len(news), "social": len(social), "cities": len(weather)},
-        risk_cards=[RiskCard(**{k: c[k] for k in _CARD_KEYS}) for c in cards],
+        risk_cards=[RiskCard(**{k: c[k] for k in _CARD_FIELDS if k in c}) for c in cards],
         engine=engine,
     )
 
@@ -352,16 +438,19 @@ async def telegraph_risk(req: TelegraphRiskRequest):
     engine = None
     try:
         news, weather, social, sent = await asyncio.wait_for(collect_signals(), timeout=30)
+        weather_map = _weather_by_city(weather)
         cards, engine = await _fuse_or_rule_based(news, weather, social, sent, req.disease, req.city)
+        cards = _attach_card_extras(cards, news, weather_map, req.disease)
         if cards:
-            risk_card = _norm_card(cards[0], req.disease)
-            risk_card["city"] = req.city or cards[0].get("city", "Unknown")
+            risk_card = dict(cards[0])
+            risk_card["city"] = req.city or risk_card["city"]
         elif weather:
             w = weather[0]
             risk_card = _norm_card(rule_based_risk(len(news), w, sent, CONFIG["thresholds"]), req.disease, w)
             risk_card["city"] = w["city"]
             risk_card["disease"] = req.disease
             engine = "rule-based"
+            risk_card = _attach_card_extras([risk_card], news, weather_map, req.disease)[0]
     except Exception as exc:  # never fail the demo endpoint on signal hiccups
         risk_card = {"error": str(exc)}
 

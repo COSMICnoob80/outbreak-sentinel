@@ -386,11 +386,13 @@ For each city, output a JSON array of risk cards:
     "risk_level": "LOW|MODERATE|HIGH|CRITICAL",
     "confidence": 0.0-1.0,
     "drivers": ["driver1", "driver2"],
-    "recommendation": "brief public health action"
+    "recommendation": "brief public health action",
+    "summary": "2-3 sentence narrative explaining this risk, derived ONLY from the signals above"
   }}
 ]
 
 Rules:
+- Base every card, including each summary, strictly on the provided signals — never invent news, links or statistics
 - {escalation or "Be conservative: only escalate if multiple signals align"}
 - Consider the weather variables provided as relevant to the domain
 - Consider news frequency: more articles = higher risk
