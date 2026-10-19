@@ -358,3 +358,5 @@ did not change, a returning client that already holds the v2 cache will keep
 being served the **old** v3 dashboard. Bumping `CACHE_NAME` (e.g. to
 `sentinel-shell-v3`) is required to ship this to existing installs — that file
 is owned by the Platform Engineer and was intentionally not modified here.
+
+- 2026-10-19 — soldier-C bumped SW cache to sentinel-shell-v3.
