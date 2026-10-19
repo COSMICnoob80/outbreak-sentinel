@@ -274,3 +274,29 @@ This is the single highest-leverage remaining task before the checkpoint.
 ### Eligibility gates (unchanged, verified)
 Telegraph S2 open to all ✅ · Agentware open to all ✅ (reg opens Oct 26) ·
 CodeTheCure/AWS CDS/HETIC/EthnoHack ineligible (students-only / APN-gated).
+
+---
+
+## 📊 CHECKPOINT 2026-10-19 — PWA stale-shell fix shipped + docs housekeeping
+
+### What shipped
+- **`dashboard/service-worker.js`** — `CACHE_NAME` bumped `sentinel-shell-v1` → **`sentinel-shell-v2`**.
+  The SW serves the shell cache-first, so a v1 cache kept serving the stale `index.html` and the
+  committed v2 dashboard never reached returning visitors. The existing `activate` handler already
+  deletes every cache whose key ≠ `CACHE_NAME`, so the rename alone forces refresh on next visit.
+  No other behavior changed. `dashboard/index.html` untouched — its registration call
+  (`register('service-worker.js')`) has no version hint to keep in sync.
+- **Docs housekeeping** — PHR records 002–004 added; `deploy/BASE-SEPOLIA-FUNDING.md` runbook
+  table prettified.
+
+### Commits (pushed to `origin/main`)
+- `55779de` — `docs(phr): PHR records 002-004 + runbook table prettify`
+- `a17d67a` — `fix(pwa): bump SW cache so committed v2 dashboard ships past the stale shell`
+
+### Verified
+- `node --check dashboard/service-worker.js` clean; `grep -n 'CACHE_NAME ='` → `"sentinel-shell-v2"`.
+- `git push origin main` → `3b67cec..a17d67a  main -> main`.
+
+### Note
+Returning clients still holding the v1 SW will pick up the v2 worker on their next navigation;
+`skipWaiting()` + `clients.claim()` already in the file make the activation immediate.
