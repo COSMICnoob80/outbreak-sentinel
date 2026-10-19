@@ -300,3 +300,61 @@ CodeTheCure/AWS CDS/HETIC/EthnoHack ineligible (students-only / APN-gated).
 ### Note
 Returning clients still holding the v1 SW will pick up the v2 worker on their next navigation;
 `skipWaiting()` + `clients.claim()` already in the file make the activation immediate.
+
+---
+
+## 📊 CHECKPOINT 2026-10-19 (late) — dashboard v3 integration (Soldier-B)
+
+### What shipped
+- **`dashboard/index.html`** rebuilt as **console-v3** (OpenDesign artifact
+  `.od/projects/outbreak-sentinel-console/console-v3/index.html`) with the live
+  data plumbing ported from the previous dashboard. Single self-contained file:
+  no CDN, no external fonts, glyph SVG symbols inline, `prefers-reduced-motion`
+  honored, PWA `manifest.json` link + `service-worker.js` registration kept.
+- **Live path** — `fetch("/risk")` (async, same-origin, `cache:"no-store"`,
+  150 s abort). Response mapped into the v3 card anatomy:
+  `city → h3`, `disease → hazard`, `risk_level → sev chip + left rail`,
+  `confidence → conf`, `drivers → "Driving signals" line`,
+  `recommendation → ACTION line`, `summary → AI chip line`,
+  `sources → citation chips showing hostname only, rel="noopener noreferrer"`,
+  `chart → 7-point sparkline + min/max/Δ footer`,
+  `illustration_hint → glyph strip`. Missing fields hide their section.
+  Metric strip/ticker/feed derive only from real `/risk` fields
+  (`signals`, `engine`, `risk_cards`, `timestamp`) plus optional `/scoreboard`
+  (receipts) and `/telegraph/intents` (masthead count), both degrade silently.
+- **Honesty boundary** — live cards are labelled `bio-surveillance` only. The
+  wildfire/supply-chain city lists exist **only** in the static demo dataset;
+  live filters for those verticals correctly fall through to the empty state.
+  `/risk` exposes no numeric score, so the big number is a documented
+  level-band + confidence index (`title` attribute says so). `/risk` also
+  exposes no hourly series, so the 24H timeline is captioned
+  **"calibration preview"** instead of being presented as live fusion.
+- **Demo fallback** — the console-v3 8-city dataset renders when the page is
+  opened as `file://`, when the fetch throws (backend unreachable/offline),
+  when the SW returns its `{offline:true}` 503, or on timeout. A small
+  **`demo data`** pill + `engine: demo (static)` + footer stamp make the
+  fallback unmistakable.
+- **State doctrine** — skeleton on load; empty state on zero cards / filtered
+  to zero; error + Retry on HTTP-level failures (server up, `/risk` 5xx).
+  No `alert()` anywhere. Untrusted card text is written with `textContent`;
+  citation HTML is escaped and non-http(s) URLs (e.g. `javascript:`) rejected.
+
+### Verified
+- Extracted the single `<script>` block (31,033 bytes) → `node --check` **PASS**.
+- Static cross-check: 28 JS element-ID refs all resolve; no duplicate ids.
+- Proof greps: `fetch("/risk")` (line 953), `sparkSVG` + `class="spark-svg"`
+  (615/628), `rel="noopener noreferrer"` (678); zero hits for
+  `fonts.googleapis|cdn.` and zero `alert(`.
+- `git diff --stat -- dashboard/manifest.json dashboard/service-worker.js`
+  → **empty** (both untouched, as required).
+
+### Commit
+- `05ce03d` — `feat(dashboard): v3 design from OpenDesign run — real /risk wired, static fallback for demo`
+
+### ⚠️ Caveat for the next owner (out of this lane)
+`dashboard/service-worker.js` is **cache-first** for `/dashboard/index.html`
+and its `CACHE_NAME` is still `sentinel-shell-v2`. Because the SW file itself
+did not change, a returning client that already holds the v2 cache will keep
+being served the **old** v3 dashboard. Bumping `CACHE_NAME` (e.g. to
+`sentinel-shell-v3`) is required to ship this to existing installs — that file
+is owned by the Platform Engineer and was intentionally not modified here.
