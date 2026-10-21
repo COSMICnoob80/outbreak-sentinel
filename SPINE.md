@@ -471,3 +471,85 @@ canonical HTML URL without changing content negotiation for JSON callers.
 `/telegraph/dashboard` as the money-visible buying layer; that URL now serves the
 console. The buying demo URL is `/telegraph/buying-layer`. Docs were not edited here.
 
+
+---
+
+## 📊 CHECKPOINT 2026-10-21 — console v4: approved Operations Console design (Soldier-E)
+
+### Why
+The boss rejected the shipped dashboard: they were seeing the bare monospace
+**"Telegraph Buying Layer"** page instead of an operations console. The approved
+aesthetic baseline is the prototype at
+`~/knowledge-graph/prototypes/outbreak-sentinel.html` ("Outbreak Sentinel —
+Operations Console", 33.6 KB). `dashboard/index.html` was rebuilt on that visual
+system; its real-data plumbing was kept, not replaced.
+
+### What shipped (`dashboard/index.html`, 78.7 KB, single self-contained file)
+- **Prototype visual system, adopted verbatim as tokens:**
+  `--bg:#0b0f17 --panel:#111827 --panel-2:#0f1626 --border:#1f2937
+  --text:#e5e7eb --dim:#8b98ac --dim-2:#5f6b7f --cyan:#38bdf8 --amber:#fbbf24`,
+  same radial background, 12 px panels, 14 px body, 1280 px shell.
+- **Translated pieces:** header (glowing dot + tagline + badges + Telegraph-link
+  intent pill), Telegraph intents ticker (paused on hover, duplicated track for a
+  seamless loop), 25 % / 75 % `.grid` (Live Signal Feed | Risk Cards), severity-rail
+  cards (`.card.lv-*` left rail + hover/pin `.detail`), `.sig` feed items with
+  news/weather/social family chips, 24 h timeline strip with Play/scrub and peak
+  readout, footer disclaimer.
+- **Kept plumbing:** `fetch("/risk")` (no-store, 150 s AbortController), engine
+  badge (`engine: llm|rule-based`), full card mapping for
+  `risk_level/confidence/drivers/recommendation/sources/summary/chart/
+  illustration_hint`, sparkline renderer (`sparkSVG`, 150x38), citation chips
+  hostname-only with `rel="noopener noreferrer"`, `/scoreboard` receipt metric,
+  `/telegraph/intents` count, skeleton -> empty -> error+Retry, `textContent` for
+  all untrusted text, zero `alert()`.
+- **Metric strip (5):** Signals 24h, Cards, Engine, Settlements, Receipt integrity.
+- **Demo fallback retained but labelled:** static 8-city dataset only on
+  `file://` / unreachable / timeout, with a `demo data` pill, `engine: demo
+  (static)` and a footer stamp. Never mixed into live cards.
+- **Embedded settlement section ("Telegraph Settlement — Buying Layer"):** query
+  input, city input, disease select, **Buy through Telegraph** -> `POST
+  /telegraph/risk` -> styled receipt card rendering `mode`, `live`, miner,
+  amount (USDC), network + chain, rail, receipt hash, and `tx_hash` as a styled
+  link to `https://sepolia.basescan.org/tx/<hash>` (overridden by
+  `explorer_tx_url` from `/telegraph/status`), plus the returned `risk_card`
+  (city/disease/level/confidence/summary/drivers/recommendation). Green
+  **LIVE SETTLEMENT PROVEN** chip only when `live === true && tx_hash &&
+  settlement.mocked === false`; `settlement_error` renders as an amber note.
+  Failure -> styled inline error + Retry (re-submits the last payload).
+- **`dashboard/service-worker.js`:** `CACHE_NAME` `sentinel-shell-v3` ->
+  **`sentinel-shell-v4`** (one line). `manifest.json` untouched.
+
+### Dev note — honesty boundaries kept
+`/risk` still exposes no numeric score and no hourly series, so the big number is
+the level-band + confidence index (documented in its `title`) and the timeline is
+captioned **"calibration preview"**. Live cards are labelled `bio-surveillance`
+only; wildfire/supply-chain city lists exist only in the demo dataset, and those
+filters correctly fall through to the empty state. Ticker amounts are labelled as
+the **observed ask price from the latest 402 challenge** — Telegraph's intents
+endpoint returns `miner_count`, not per-intent prices, so no per-intent quote is
+invented.
+
+### Verified (on disk, live)
+- Extracted the single `<script>` (42,089 bytes) with `python3` -> `node --check`
+  **PASS**; `node --check dashboard/service-worker.js` **PASS**.
+- Static cross-check: 69 ids, **0 duplicates**; all **43** JS `$("#...")` refs
+  resolve; `alert(` count **0**.
+- `uvicorn app:app --host 127.0.0.1 --port 8001` (env -u PYTHONPATH):
+  `GET /risk` -> **200** in 13.0 s, `engine: llm`, **5 cards** (Karachi/Lahore/
+  Islamabad/Peshawar/Quetta, each with drivers + 5 sources + 7-point chart);
+  `GET /dashboard/` -> **200** (78,742 bytes); `GET /telegraph/status` -> **200**
+  (`mode: live`, `explorer_tx_url` present). Server killed afterwards.
+- Grep proofs in the served shell: `fetch("/risk")` x1, `Buy through Telegraph`
+  x2, `LIVE SETTLEMENT PROVEN` x1, `sepolia.basescan.org/tx/` x1,
+  `--cyan:#38bdf8` and `--amber:#fbbf24` x1 each.
+- `git diff --stat` before commit: only `dashboard/index.html` and
+  `dashboard/service-worker.js` (+1100/-677).
+
+### Commit
+- `20069c7` — `feat(console): v4 — approved Operations Console design + live /risk data + embedded settlement panel`
+
+### Open / for the next owner
+`EXPLORER_TX` defaults to the Sepolia basescan URL and is upgraded from
+`/telegraph/status` at runtime; `/telegraph/status` remains the only source for
+`explorer_tx_url`. Docs describing the dashboard as the buying page (Soldier-F
+note above) are unchanged.
