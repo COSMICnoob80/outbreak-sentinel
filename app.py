@@ -13,6 +13,7 @@ import aiohttp
 import feedparser
 import yaml
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import FileResponse, RedirectResponse
 from pydantic import BaseModel
 from receipts import ReceiptStore, make_receipt
 from publish import publish_cards
@@ -296,9 +297,10 @@ async def _fuse_or_rule_based(news, weather, social, sent, disease, city=None):
 
 # ── Endpoints ─────────────────────────────────────────────────────────
 
-@app.get("/")
-def health():
-    return {"status": "ok", "service": "outbreak-sentinel", "version": "1.0.0", "cities": [c["name"] for c in CONFIG["cities"]]}
+@app.get("/", include_in_schema=False)
+def root():
+    """Canonical entry point: the Operations Console."""
+    return RedirectResponse(url="/telegraph/dashboard", status_code=302)
 
 @app.get("/risk", response_model=RiskResponse)
 async def get_risk(city: Optional[str] = None, disease: str = "dengue"):
@@ -578,10 +580,15 @@ async def telegraph_intents():
 
 @app.get("/telegraph/dashboard")
 def telegraph_dashboard():
-    """Serve the money-visible front-end fragment."""
-    from fastapi.responses import FileResponse
-    import os as _os
-    path = _os.path.join(_os.path.dirname(__file__), "static", "telegraph.html")
+    """Serve the Operations Console."""
+    path = os.path.join(os.path.dirname(__file__), "dashboard", "index.html")
+    return FileResponse(path, media_type="text/html")
+
+
+@app.get("/telegraph/buying-layer")
+def telegraph_buying_layer():
+    """Demo page for the Track 03 buying layer — not the default landing page."""
+    path = os.path.join(os.path.dirname(__file__), "static", "telegraph.html")
     return FileResponse(path, media_type="text/html")
 
 
