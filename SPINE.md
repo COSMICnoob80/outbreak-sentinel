@@ -360,3 +360,60 @@ being served the **old** v3 dashboard. Bumping `CACHE_NAME` (e.g. to
 is owned by the Platform Engineer and was intentionally not modified here.
 
 - 2026-10-19 — soldier-C bumped SW cache to sentinel-shell-v3.
+
+---
+
+## 📊 CHECKPOINT 2026-10-21 — LIVE x402 settlement works (Soldier-D)
+
+First **real, on-chain** settlement from `/telegraph/risk`. Two bugs blocked it; both fixed
+and verified live against the real engine.
+
+### Bug 1 — escrow accept broke `model_validate` (`telegraph/client.py::_live_settle`)
+The engine's 402 challenge carries three accepts:
+`exact` @ `eip155:84532` (payable), `exact` @ `solana:EtWTRAB…` (SDK skips unregistered
+networks), and `escrow` @ `eip155:84532` **missing the V2 schema's required `asset` and
+`maxTimeoutSeconds`**. `PaymentRequired.model_validate(decoded)` rejected the entire
+challenge on the escrow entry (2 ValidationErrors), so settlement never ran.
+Fix: shallow-copy the challenge, replace **only** `accepts` with entries whose
+`scheme == "exact"`, then validate. Rest of the challenge untouched. If no exact accept
+survives, `RuntimeError` lists the schemes seen — no silent fallback.
+
+### Bug 2 — settlement KeyError 500'd the endpoint (`app.py::telegraph_risk`)
+`settlement["amount_uusdc"]` raised KeyError on the failed-settlement proof shape.
+Fix: the `buy_intelligence` call and every settlement field are guarded; all reads use
+`.get()`. A failed/incomplete settlement now returns **HTTP 200** with `mode`, `live`,
+`engine`, `testnet_boundary`, `settlement_error` (exception text) and `risk_card` as usual.
+Settlement logic itself unchanged.
+
+### Live evidence (uvicorn 127.0.0.1:8001, POST /telegraph/risk Karachi/dengue)
+HTTP 200. Verbatim fields:
+- `mode` = `live`
+- `live` = `true`
+- `engine` = `llm`
+- `network_label` = `Base Sepolia (testnet)`
+- `tx_hash` = `0xf2276f58c67f802783f9667e6dfbd74219d3639429d89e30a9b9f8c4c09397d4`
+- `amount_uusdc` = `"10000"` (0.01 USDC), `settlement_error` = `null`
+- `settlement.mocked` = `false`, `settlement.real_challenge_received` = `true`
+- `settlement.rail` = `x402 (live)`
+
+`tx_hash` is a **REAL settle tx from the facilitator's PAYMENT-RESPONSE header**
+(`settle.transaction`), not synthesized. Confirmed independently via Base Sepolia RPC
+`eth_getTransactionByHash`: `status 0x1`, block `0x2e2a37a`, with a USDC `Transfer` log
+from the burner `0x7b3654a6…f249` at `0x036CbD53…dCF7e`.
+Explorer (per `TELEGRAPH_EXPLORER_TX_URL`): https://sepolia.basescan.org/tx/0xf2276f58c67f802783f9667e6dfbd74219d3639429d89e30a9b9f8c4c09397d4
+
+### Note for the demo narrative
+The purchased answer came back from miner `9002`/`txlens` routed to intent `STORM_ALERT`
+with an Air Force base location — the Engine's router chose the intent, and the `/risk`
+card is fused separately. The **payment leg** is what this checkpoint proves; answer
+relevance for bio-surveillance is a router/query-shaping question, not a settlement one.
+
+### Commits
+- `e39e676` — `fix(settlement): exact-scheme accept selection + robust settlement fields in /telegraph/risk` (pushed to `origin/main`)
+- this checkpoint — `docs(spine): checkpoint soldier-D live settlement fix`
+
+### Verified
+- `env -u PYTHONPATH .venv/bin/python -m compileall -q app.py telegraph` → clean
+- `pytest` → **3 passed**
+- Server log: no traceback, no ValidationError on the request that settled.
+
