@@ -1,4 +1,4 @@
-const CACHE_NAME = "sentinel-shell-v3";
+const CACHE_NAME = "sentinel-shell-v4";
 const SHELL = [
   "/dashboard/",
   "/dashboard/index.html",
