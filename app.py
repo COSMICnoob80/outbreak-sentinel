@@ -429,9 +429,27 @@ async def telegraph_risk(req: TelegraphRiskRequest):
     """Track 03 demo endpoint: route a PAID Telegraph request, return ranked
     answer + settlement proof + resulting risk card. Money-visible fields are
     first-class JSON keys."""
-    proof = await _telegraph_client.buy_intelligence(
-        req.query, context={"city": req.city, "disease": req.disease, "vertical": req.vertical}
-    )
+    # Settlement must never 500 this endpoint: any failure degrades to a non-500
+    # payload that states what went wrong in `settlement_error`.
+    settlement_error = None
+    try:
+        proof = await _telegraph_client.buy_intelligence(
+            req.query, context={"city": req.city, "disease": req.disease, "vertical": req.vertical}
+        )
+    except Exception as exc:
+        settlement_error = f"{type(exc).__name__}: {exc}"
+        proof = {
+            "mode": "live" if is_live() else "mocked",
+            "live": False,
+            "ranked_answer": None,
+            "miner": None,
+            "miner_name": None,
+            "amount": None,
+            "tx_hash": None,
+            "network_label": TELEGRAPH_CONFIG["network_label"],
+            "chain_id": TELEGRAPH_CONFIG["chain_id"],
+            "testnet_boundary": TELEGRAPH_CONFIG["testnet_boundary"],
+        }
 
     # Build the resulting risk card via the real LLM fusion path (additive reuse).
     risk_card = None
@@ -454,20 +472,10 @@ async def telegraph_risk(req: TelegraphRiskRequest):
     except Exception as exc:  # never fail the demo endpoint on signal hiccups
         risk_card = {"error": str(exc)}
 
-    settlement = proof["settlement"]
-    return {
-        "request": {"query": req.query, "city": req.city, "disease": req.disease, "vertical": req.vertical},
-        "mode": proof["mode"],
-        "live": proof["live"],
-        "ranked_answer": proof["ranked_answer"],
-        # Money-visible (first-class):
-        "miner": proof["miner"],
-        "miner_name": proof["miner_name"],
-        "amount": proof["amount"],
-        "tx_hash": proof["tx_hash"],
-        "network_label": proof["network_label"],
-        "chain_id": proof["chain_id"],
-        "settlement": {
+    # Every settlement field is read defensively — a missing key is reported, not raised.
+    settlement = proof.get("settlement") or {}
+    try:
+        settlement_view = {
             "miner": settlement["miner"],
             "miner_name": settlement["miner_name"],
             "amount": settlement["amount_usd"],
@@ -479,10 +487,43 @@ async def telegraph_risk(req: TelegraphRiskRequest):
             "receipt_hash": settlement["receipt_hash"],
             "real_challenge_received": settlement["real_challenge_received"],
             "mocked": settlement["mocked"],
-        },
+        }
+    except Exception as exc:
+        if settlement_error is None:
+            settlement_error = f"{type(exc).__name__}: {exc}"
+        settlement_view = {
+            "miner": settlement.get("miner"),
+            "miner_name": settlement.get("miner_name"),
+            "amount": settlement.get("amount_usd"),
+            "amount_uusdc": settlement.get("amount_uusdc"),
+            "tx_hash": settlement.get("tx_hash"),
+            "network_label": settlement.get("network_label"),
+            "chain_id": settlement.get("chain_id"),
+            "rail": settlement.get("rail"),
+            "receipt_hash": settlement.get("receipt_hash"),
+            "real_challenge_received": settlement.get("real_challenge_received"),
+            "mocked": settlement.get("mocked"),
+        }
+    if proof.get("error"):
+        settlement_error = str(proof["error"])
+
+    return {
+        "request": {"query": req.query, "city": req.city, "disease": req.disease, "vertical": req.vertical},
+        "mode": proof.get("mode"),
+        "live": proof.get("live", False),
+        "ranked_answer": proof.get("ranked_answer"),
+        # Money-visible (first-class):
+        "miner": proof.get("miner"),
+        "miner_name": proof.get("miner_name"),
+        "amount": proof.get("amount"),
+        "tx_hash": proof.get("tx_hash"),
+        "network_label": proof.get("network_label"),
+        "chain_id": proof.get("chain_id"),
+        "settlement": settlement_view,
+        "settlement_error": settlement_error,
         "risk_card": risk_card,
         "engine": engine,
-        "testnet_boundary": proof["testnet_boundary"],
+        "testnet_boundary": proof.get("testnet_boundary", TELEGRAPH_CONFIG["testnet_boundary"]),
     }
 
 

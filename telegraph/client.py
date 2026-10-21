@@ -155,7 +155,22 @@ class TelegraphClient:
         decoded = challenge_info.get("challenge")
         if not decoded:
             raise RuntimeError("no decoded payment challenge available")
-        payment_required = PaymentRequired.model_validate(decoded)
+
+        # The engine may offer accepts we cannot pay (e.g. an "escrow" entry that
+        # omits the V2 schema's required `asset` / `maxTimeoutSeconds`). Only the
+        # "exact" scheme is payable by ExactEvmScheme; keep the rest of the
+        # challenge untouched and let model_validate() see exact-only accepts.
+        accepts = decoded.get("accepts") or []
+        exact_accepts = [a for a in accepts if isinstance(a, dict) and a.get("scheme") == "exact"]
+        if not exact_accepts:
+            schemes_seen = sorted({str(a.get("scheme")) for a in accepts if isinstance(a, dict)})
+            raise RuntimeError(
+                "no 'exact' scheme in x402 challenge accepts; schemes seen: "
+                + (", ".join(schemes_seen) if schemes_seen else "<none>")
+            )
+        payable = dict(decoded)
+        payable["accepts"] = exact_accepts
+        payment_required = PaymentRequired.model_validate(payable)
 
         # Create the signed EIP-3009 payment payload.
         payload = await x_client.create_payment_payload(payment_required)
