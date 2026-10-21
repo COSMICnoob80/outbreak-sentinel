@@ -417,3 +417,57 @@ relevance for bio-surveillance is a router/query-shaping question, not a settlem
 - `pytest` → **3 passed**
 - Server log: no traceback, no ValidationError on the request that settled.
 
+---
+
+## 📊 CHECKPOINT 2026-10-21 — route surgery: console is the default landing (Soldier-F)
+
+### Problem
+`GET /telegraph/dashboard` served `static/telegraph.html` — the bare
+**"Telegraph Buying Layer (Track 03)"** monospace page — so anyone opening the
+dashboard URL (and every demo script) landed on the demo page instead of the
+Operations Console. `GET /` returned a JSON payload, so there was no HTML root.
+
+### Route table — BEFORE
+| Path | Served |
+|---|---|
+| `GET /` | JSON `{"status":"ok","service":"outbreak-sentinel",...}` (`health`) |
+| `GET /telegraph/dashboard` | `FileResponse(static/telegraph.html)` — **buying layer** |
+| `GET /dashboard` | StaticFiles mount (`html=True`) → `dashboard/index.html` (console) |
+| `GET /health` | JSON liveness probe |
+
+### Route table — AFTER
+| Path | Served |
+|---|---|
+| `GET /` | **302 → `/telegraph/dashboard`** (`RedirectResponse`) |
+| `GET /telegraph/dashboard` | `FileResponse(dashboard/index.html, media_type="text/html")` — **console** |
+| `GET /telegraph/buying-layer` | `FileResponse(static/telegraph.html, media_type="text/html")` — demo page, now with a visible `DEMO TOOL` banner |
+| `GET /dashboard` | StaticFiles mount, unchanged |
+| `GET /health` | unchanged (Railway + Docker healthcheck still point here) |
+
+**Redirect vs mount at `/`:** chose the 302 because `/` previously carried a JSON
+health payload whose useful fields already exist at `/health`; a redirect keeps one
+canonical HTML URL without changing content negotiation for JSON callers.
+
+### Scope / files touched
+- `app.py` — imports `FileResponse, RedirectResponse` at module top; `/` handler
+  replaced with redirect; `/telegraph/dashboard` repointed; new `/telegraph/buying-layer`.
+- `static/telegraph.html` — one banner `<div>` after `<h1>` (no JS/CSS/settlement changes).
+- **Untouched:** `dashboard/index.html`, `dashboard/service-worker.js`, `telegraph/`,
+  `.env`, all settlement logic, the `/dashboard` and `/static` mounts.
+
+### Verified
+- `.venv/bin/python -m pytest tests -q` → **3 passed** (before) and **3 passed** (after).
+- TestClient: `GET /` → `302 /telegraph/dashboard`; `GET /telegraph/dashboard` → `200
+  text/html`, title **"Outbreak Sentinel — Operations Console"**; `GET
+  /telegraph/buying-layer` → `200 text/html`, `DEMO TOOL: True`; `GET /health` → `200`;
+  following `/` yields HTML.
+- `git diff --numstat` → only `app.py` (+14/−7) and `static/telegraph.html` (+1/−0).
+
+### Commit
+- `d537954` — `fix(routes): / and /telegraph/dashboard serve the Operations Console; buying layer demoted to demo route` (pushed `f83f3de..d537954`)
+
+### Note
+`demo/SCRIPT-60s.md`, `demo/SHOTLIST.md` and `pitch/ONE-PAGER.md` still describe
+`/telegraph/dashboard` as the money-visible buying layer; that URL now serves the
+console. The buying demo URL is `/telegraph/buying-layer`. Docs were not edited here.
+
