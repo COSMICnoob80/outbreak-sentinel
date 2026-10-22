@@ -158,6 +158,36 @@ async def fetch_news(
         return []
 
 
+async def gather_weather(
+    session: aiohttp.ClientSession,
+    cities: list,
+    fetcher,
+    attempts: int = 2,
+    delay: float = 1.0,
+) -> list:
+    """Fetch weather for every city, retrying only the ones that failed.
+
+    Downstream filters drop any result carrying an "error" key, so a single
+    transient failure (e.g. a 429 during the concurrent news/weather/social
+    burst) silently removes that city from the render. One retry round keeps
+    the city grid stable without retrying successful fetches.
+    """
+    results = list(await asyncio.gather(*[fetcher(session, city) for city in cities]))
+    for _ in range(1, attempts):
+        failed = [
+            i for i, r in enumerate(results)
+            if not isinstance(r, dict) or "error" in r or "forecast" not in r
+        ]
+        if not failed:
+            break
+        if delay:
+            await asyncio.sleep(delay)
+        again = await asyncio.gather(*[fetcher(session, cities[i]) for i in failed])
+        for i, r in zip(failed, again):
+            results[i] = r
+    return results
+
+
 async def fetch_weather(
     session: aiohttp.ClientSession, city: dict, forecast_vars=None
 ) -> dict:
@@ -543,8 +573,10 @@ async def main():
         print(f"{C.DIM}🌤️  Fetching weather...{C.RESET}")
         _vertical = config.get("_vertical") or {}
         _forecast_vars = _vertical.get("forecast_vars") or None
-        weather_results = await asyncio.gather(
-            *[fetch_weather(session, city, _forecast_vars) for city in config["cities"]]
+        weather_results = await gather_weather(
+            session,
+            config["cities"],
+            lambda s, city: fetch_weather(s, city, _forecast_vars),
         )
 
         # Fetch social

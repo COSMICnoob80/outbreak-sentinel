@@ -17,7 +17,7 @@ from fastapi.responses import FileResponse, RedirectResponse
 from pydantic import BaseModel
 from receipts import ReceiptStore, make_receipt
 from publish import publish_cards
-from outbreak_sentinel import default_config, fuse_with_groq, load_env_file
+from outbreak_sentinel import default_config, fuse_with_groq, gather_weather, load_env_file
 
 app = FastAPI(title="Outbreak Sentinel", version="1.0.0")
 
@@ -116,7 +116,7 @@ async def collect_signals():
     hours = CONFIG["lookback_hours"]
     async with aiohttp.ClientSession() as session:
         news = await asyncio.gather(*[fetch_news(session, kw, hours) for kw in CONFIG["news_keywords"]])
-        weather = await asyncio.gather(*[fetch_weather(session, c) for c in CONFIG["cities"]])
+        weather = await gather_weather(session, CONFIG["cities"], fetch_weather)
         social = await asyncio.gather(*[fetch_news(session, kw, 24) for kw in CONFIG["social_keywords"]])
     all_news = [a for sub in news for a in sub]
     all_social = [p for sub in social for p in sub]
