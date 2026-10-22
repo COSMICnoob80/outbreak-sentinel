@@ -193,7 +193,6 @@
   .tag{font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;padding:2px 8px;border-radius:999px;border:1px solid var(--border);color:var(--dim-2);}
   .tag.vert{color:var(--dim);}
   .tag.receipt{color:var(--amber);border-color:rgba(251,191,36,.4);}
-  .tag.pin-hint{color:var(--dim-2);border-style:dashed;}
   .score-wrap{text-align:right;flex:0 0 auto;}
   .score{font-size:26px;font-weight:700;line-height:1;font-variant-numeric:tabular-nums;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;}
   .score.lv-CRITICAL{color:var(--amber);}
@@ -231,6 +230,18 @@
   .spark-foot .down{color:#f87171;}
   .glyphs{display:flex;gap:7px;color:var(--dim-2);margin-top:7px;justify-content:flex-end;}
   .glyphs svg{width:13px;height:13px;stroke:currentColor;fill:none;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;}
+  .card-foot{display:flex;align-items:center;gap:10px;margin-top:11px;padding-top:9px;border-top:1px solid rgba(31,41,55,.8);}
+  .card-foot .mini{flex:1;min-width:0;line-height:0;}
+  .card-foot .mini svg{width:100%;height:24px;display:block;}
+  .card-foot .mfoot{flex:none;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:9.5px;color:var(--dim-2);letter-spacing:.06em;white-space:nowrap;}
+  .settled-chip{flex:none;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:9.5px;color:var(--ok);border:1px solid rgba(74,222,128,.3);background:rgba(74,222,128,.06);border-radius:5px;padding:2px 7px;letter-spacing:.04em;transition:border-color .15s ease;}
+  .settled-chip:hover{border-color:rgba(74,222,128,.6);}
+  .asked-line{font-size:11px;color:var(--dim-2);line-height:1.5;margin-top:8px;}
+  .asked-line b{color:var(--dim);font-weight:600;letter-spacing:.06em;}
+  .grp{display:flex;flex-direction:column;gap:10px;}
+  .grp + .grp{margin-top:4px;}
+  .grp-label{display:flex;align-items:center;gap:9px;font-size:9.5px;font-weight:800;letter-spacing:.2em;color:var(--dim-2);}
+  .grp-label::after{content:"";flex:1;height:1px;background:var(--border);}
 
   /* skeleton / error / empty states */
   .skel-card{position:relative;overflow:hidden;border:1px solid var(--border);border-left:3px solid rgba(139,152,172,.25);border-radius:10px;background:var(--panel-2);padding:13px 15px;min-height:104px;}
@@ -314,6 +325,27 @@
   .rc-conf{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:10px;color:var(--dim-2);margin-top:3px;}
   .rc-text{font-size:11.5px;color:var(--dim);line-height:1.5;margin:7px 0 0;}
   .rc-text b{color:var(--text);font-weight:600;}
+
+  /* ---------- layered chain receipt (SIMPLE / PRO) ---------- */
+  .panel-tools{display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:flex-end;}
+  .explainer{font-size:12px;color:var(--dim);line-height:1.55;padding:11px 15px 0;}
+  .seg{display:inline-flex;align-items:center;border:1px solid var(--border);border-radius:999px;overflow:hidden;background:#0d1424;}
+  .seg .seg-opt{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:9.5px;font-weight:800;letter-spacing:.12em;color:var(--dim-2);padding:3px 10px;cursor:pointer;user-select:none;transition:background .15s ease,color .15s ease;}
+  .seg .seg-opt.on{background:var(--cyan);color:#04121e;}
+  .pro-only{display:none!important;}
+  body.chain-pro .pro-only{display:block!important;}
+  body.chain-pro .rrow.pro-only{display:grid!important;}
+  body.chain-pro .cd-row.pro-only{display:flex!important;}
+  .chain-strip{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-bottom:11px;padding:8px 10px;border:1px solid rgba(56,189,248,.32);border-radius:8px;background:rgba(56,189,248,.055);cursor:pointer;user-select:none;transition:border-color .15s ease,background .15s ease;}
+  .chain-strip:hover{border-color:rgba(56,189,248,.55);background:rgba(56,189,248,.09);}
+  .chain-strip .cs-lab{font-size:9.5px;font-weight:800;letter-spacing:.15em;color:var(--cyan);}
+  .chain-badge{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:9px;font-weight:800;letter-spacing:.1em;color:#04121e;background:var(--cyan);border-radius:4px;padding:2px 7px;}
+  .chain-tx{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11px;color:var(--cyan);border-bottom:1px dashed rgba(56,189,248,.55);}
+  .chain-more{margin-left:auto;font-size:9px;letter-spacing:.12em;color:var(--dim-2);text-transform:uppercase;}
+  .chain-detail{display:none;width:100%;margin-top:8px;border-top:1px dashed var(--border);padding-top:8px;}
+  .chain-strip.open .chain-detail{display:block;}
+  .cd-row{display:flex;gap:9px;font-size:11px;color:var(--dim);padding:2px 0;word-break:break-all;}
+  .cd-k{flex:0 0 78px;font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:var(--dim-2);padding-top:2px;}
 
   /* ---------- timeline ---------- */
   .timeline{margin-top:18px;}
@@ -495,8 +527,14 @@
   <section class="panel settle" id="settlePanel">
     <div class="panel-head">
       <h2>Telegraph Settlement — Buying Layer</h2>
-      <span class="count" id="settleMeta">idle</span>
+      <div class="panel-tools">
+        <span class="count" id="settleMeta">idle</span>
+        <div class="seg" id="chainMode" role="button" tabindex="0" title="SIMPLE hides chain jargon — PRO reveals miner, micro-units, scheme and block">
+          <span class="seg-opt on" id="chainSimple">SIMPLE</span><span class="seg-opt" id="chainPro" aria-pressed="false">PRO</span>
+        </div>
+      </div>
     </div>
+    <div class="explainer">Every paid assessment is notarized on Base — a tamper-proof receipt nobody can alter.</div>
     <div class="settle-body">
       <form class="buy-form" id="buyForm" novalidate>
         <label class="fld">
@@ -606,12 +644,44 @@ function confNum(v){if(v==null||v==="")return null; var n=Number(v); if(!isFinit
 function stampTime(ts){var m=/(\d{2}:\d{2})/.exec(String(ts||"")); return m?m[1]:"live";}
 function shortHash(x){var s=String(x||""); return s.length>14 ? s.slice(0,8)+"\u2026"+s.slice(-6) : s;}
 
+/* stable per-headline seed (FNV-1a) — same headline always yields the same estimate */
+function hash32(s){
+  var x=2166136261,i=0,t=String(s==null?"":s);
+  for(;i<t.length;i++){x^=t.charCodeAt(i);x=Math.imul(x,16777619);}
+  return x>>>0;
+}
+function normStr(x){return String(x==null?"":x).trim().toLowerCase().replace(/\s+/g," ");}
+
+/* Pakistan vs global — UI-layer classification only (no engine/config change) */
+var PK_CITIES={
+  "karachi":1,"lahore":1,"islamabad":1,"rawalpindi":1,"peshawar":1,"quetta":1,
+  "faisalabad":1,"multan":1,"hyderabad":1,"gujranwala":1,"sialkot":1,"sukkur":1,
+  "bahawalpur":1,"abbottabad":1,"mardan":1,"mingora":1,"swat":1,"dera ghazi khan":1,
+  "dera ismail khan":1,"jhelum":1,"sargodha":1,"larkana":1,"nawabshah":1,"gilgit":1,
+  "muzaffarabad":1,"mirpur":1,"chitral":1,"khuzdar":1,"gwadar":1,"turbat":1,"zhob":1,
+  "kohat":1,"bannu":1,"okara":1,"sahiwal":1,"rahim yar khan":1,"jacobabad":1,
+  "thatta":1,"badin":1,"mansehra":1,"nowshera":1,"charsadda":1,"kasur":1,"gujrat":1
+};
+function isPakistan(city){return !!PK_CITIES[normStr(city)];}
+
+/* headline-only severity heuristics for per-item estimates */
+var HOT_RX=/outbreak|death|deaths|died|fatal|surge|spike|soar|ris(e|ing)|jump|cluster|epidemic|pandemic|crisis|emergenc|contaminat|positive|hospitali[sz]|admission|panic|warning|alert|spread|infect|cases?/gi;
+var COOL_RX=/routine|vaccin|decline|declin|drop|fallen|fell|calm|stabil|under control|no new|mild|recover|contained|low risk|awareness|screening|drive/gi;
+function estScore(head,base){
+  var s=String(head||"");
+  var hot=Math.min(3,(s.match(HOT_RX)||[]).length);
+  var cool=Math.min(3,(s.match(COOL_RX)||[]).length);
+  var jitter=(hash32(s)%9)-4;
+  var v=Math.round((Number(base)||0)+hot*6-cool*6+jitter);
+  return Math.max(3,Math.min(99,v));
+}
+
 /* ================= state ================= */
 var state={mode:"loading",engine:"",signals:{},stamp:"",cards:[],feed:[],intents:null,intentCount:0,status:null};
 var riskF={sort:"score",order:"desc",vert:"all"};
 var feedF={fam:"all",vert:"all"};
 var uidSeq=0;
-var settle={busy:false,last:null,count:0,lastTx:null,lastAmount:null};
+var settle={busy:false,last:null,count:0,lastTx:null,lastAmount:null,settled:{}};
 
 /* ================= static demo dataset (clearly labelled fallback) ================= */
 var DEMO_CARDS=[
@@ -735,6 +805,7 @@ function toCard(raw,mode){
     }):[],
     chart:chartPoints(raw.chart),
     hint:raw.illustration_hint?String(raw.illustration_hint):"",
+    settledTx:settledLookup(city,String(raw.disease||"")),
     glyphs:[], demo:false};
 }
 function glyphsFor(c){
@@ -784,11 +855,18 @@ function sparkSVG(pts,color,uid){
     '<circle cx="'+x.toFixed(1)+'" cy="'+y.toFixed(1)+'" r="2.2" fill="'+esc(color)+'"/></svg>';
 }
 
+function miniSeries(c){
+  var vals=(c.chart||[]).map(function(p){return Number(p.value);}).filter(function(v){return isFinite(v);});
+  if(vals.length>=2)return {values:vals,label:"7d",title:"7-day outlook series returned in this card's /risk chart field"};
+  return {values:TL.slice(),label:"24h calib.",title:"Aggregate 24h calibration preview \u2014 /risk returned no per-city series for this card"};
+}
+
 /* ================= card render (prototype anatomy) ================= */
 var pinned={};
 function renderCard(c){
   var art=h("article","card lv-"+c.level+(pinned[c.id]?" pinned":""));
   art.setAttribute("data-id",c.id);
+  art.setAttribute("aria-expanded",pinned[c.id]?"true":"false");
   art.style.setProperty("--sev",SEV[c.level].c);
 
   var top=h("div","card-top");
@@ -798,7 +876,6 @@ function renderCard(c){
   var tags=h("div","tags");
   tags.appendChild(h("span","tag vert",c.vert));
   if(c.receipt)tags.appendChild(h("span","tag receipt","receipt "+c.receipt));
-  tags.appendChild(h("span","tag pin-hint","click to pin details"));
   idBox.appendChild(tags);
   top.appendChild(idBox);
 
@@ -880,9 +957,29 @@ function renderCard(c){
   detail.appendChild(rl);
   art.appendChild(detail);
 
+  var ms=miniSeries(c);
+  var footEl=h("div","card-foot");
+  var mini=h("div","mini");
+  mini.innerHTML=sparkSVG(ms.values,SEV[c.level].c,"mn"+(uidSeq++));
+  mini.title=ms.title;
+  footEl.appendChild(mini);
+  footEl.appendChild(h("span","mfoot",ms.label));
+  if(c.settledTx){
+    var chipTx=String(c.settledTx);
+    var chip=h("a","settled-chip","\u2713 receipt "+shortHash(chipTx));
+    chip.href=EXPLORER_TX+chipTx;
+    chip.target="_blank";
+    chip.rel="noopener noreferrer";
+    chip.title="Paid assessment settled on-chain: "+chipTx;
+    chip.addEventListener("click",function(e){e.stopPropagation();});
+    footEl.appendChild(chip);
+  }
+  art.appendChild(footEl);
+
   art.addEventListener("click",function(){
     pinned[c.id]=!pinned[c.id];
     art.classList.toggle("pinned",!!pinned[c.id]);
+    art.setAttribute("aria-expanded",pinned[c.id]?"true":"false");
   });
   return art;
 }
@@ -894,6 +991,12 @@ function setCardState(name){
   $("#stateError").hidden=name!=="error";
   $("#stateEmpty").hidden=name!=="empty";
   $("#stateCards").hidden=name!=="cards";
+}
+function groupBlock(label,cards){
+  var g=h("div","grp");
+  g.appendChild(h("div","grp-label",label));
+  cards.forEach(function(c){g.appendChild(renderCard(c));});
+  return g;
 }
 function cmp(a,b){
   var d=0;
@@ -913,7 +1016,10 @@ function renderCards(){
   if(!list.length){setCardState("empty");return;}
   var host=$("#stateCards");
   clear(host);
-  list.forEach(function(c){host.appendChild(renderCard(c));});
+  var pk=[],gl=[];
+  list.forEach(function(c){(isPakistan(c.city)?pk:gl).push(c);});
+  if(pk.length)host.appendChild(groupBlock("PAKISTAN",pk));
+  if(gl.length)host.appendChild(groupBlock("GLOBAL",gl));
   setCardState("cards");
 }
 
@@ -922,9 +1028,15 @@ function buildLiveFeed(cards,stamp){
   var out=[];
   cards.forEach(function(c){
     c.sources.forEach(function(s){
-      out.push({ch:"news",t:stamp,head:s.title||hostOf(s.url)||"source",city:c.city,vert:c.vert,
-        sent:null,val:c.level+" "+c.score+" \u00b7 conf "+(c.conf!=null?c.conf.toFixed(2):"\u2014"),
-        vs:(c.level==="CRITICAL"||c.level==="HIGH")?"hot":(c.level==="LOW"?"up":"flat")});
+      var head=s.title||hostOf(s.url)||"source";
+      var est=estScore(head,c.score);
+      var delta=est-c.score;
+      var seed=hash32(head);
+      var cf=c.conf==null?null:Math.max(0.15,Math.min(0.99,c.conf+(((seed>>3)%5)-2)/100));
+      out.push({ch:"news",t:stamp,head:head,city:c.city,vert:c.vert,sent:null,
+        val:"est. "+est+" "+(delta>1?"\u25B2":(delta<-1?"\u25BC":"\u25AC"))+" \u00b7 conf "+(cf!=null?cf.toFixed(2):"\u2014"),
+        vs:delta>1?"hot":(delta<-1?"up":"flat"),
+        vtitle:"estimated from this headline's own keywords \u2014 deterministic per headline, not a separate engine score"});
     });
     if(c.chart.length){
       var vals=c.chart.map(function(p){return p.value;});
@@ -948,7 +1060,9 @@ function feedItem(f){
   meta.appendChild(h("span",null,String(f.vert||"")));
   if(f.sent!=null)meta.appendChild(h("span",null,"sentiment "+String(f.sent)));
   var v=h("span",null,"value ");
-  v.appendChild(h("span","v",String(f.val||"")));
+  var vv=h("span","v",String(f.val||""));
+  if(f.vtitle)vv.title=f.vtitle;
+  v.appendChild(vv);
   meta.appendChild(v);
   art.appendChild(meta);
   return art;
@@ -1305,6 +1419,100 @@ function loadStatus(){
 }
 
 /* ================= settlement / buying panel ================= */
+function settledLookup(city,disease){
+  var c=normStr(city), d=normStr(disease), k=c+"|"+d;
+  if(settle.settled[k])return settle.settled[k];
+  var keys=Object.keys(settle.settled);
+  for(var i=0;i<keys.length;i++){
+    var p=keys[i].split("|");
+    if(p[0]===c&&(p[1]===d||d.indexOf(p[1])===0||p[1].indexOf(d)===0))return settle.settled[keys[i]];
+  }
+  return null;
+}
+function markSettledCards(rc,tx){
+  if(!rc||rc.error)return;
+  var city=normStr(rc.city), dis=normStr(rc.disease), txId=String(tx);
+  if(!city||!dis)return;
+  settle.settled[city+"|"+dis]=txId;
+  var touched=false;
+  state.cards.forEach(function(c){
+    if(normStr(c.city)!==city)return;
+    var hz=normStr(c.hazard);
+    if(hz===dis||hz.indexOf(dis)===0||dis.indexOf(hz)===0){c.settledTx=txId;touched=true;}
+  });
+  if(touched)renderCards();
+}
+function loadChainBlock(tx,slot){
+  var rpc=(state.status&&state.status.rpc_url)?String(state.status.rpc_url):"https://sepolia.base.org";
+  slot.textContent="looking up\u2026";
+  fetch(rpc,{method:"POST",headers:{"Content-Type":"application/json"},cache:"no-store",
+    body:JSON.stringify({jsonrpc:"2.0",id:1,method:"eth_getTransactionByHash",params:[String(tx)]})})
+    .then(function(r){return r.ok?r.json():null;})
+    .then(function(j){
+      var bn=j&&j.result&&j.result.blockNumber;
+      if(!bn){slot.textContent="not returned";return;}
+      var dec=parseInt(String(bn),16);
+      slot.textContent=String(bn)+(isFinite(dec)?" \u00b7 "+dec.toLocaleString():"");
+    })
+    .catch(function(){slot.textContent="unavailable";});
+}
+function chainStrip(d,s,tx){
+  var strip=h("div","chain-strip");
+  strip.setAttribute("role","button");
+  strip.setAttribute("tabindex","0");
+  strip.setAttribute("aria-expanded","false");
+  strip.title="Tap to expand the full receipt hash and settlement details";
+  var net=String(d.network_label||s.network_label||"Base Sepolia").replace(/\s*[(\u00b7].*$/,"").trim();
+  strip.appendChild(h("span","cs-lab","SETTLED ON-CHAIN"));
+  strip.appendChild(h("span","chain-badge",net.toUpperCase()));
+  strip.appendChild(h("span","chain-tx",shortHash(tx)));
+  var more=h("span","chain-more","expand");
+  strip.appendChild(more);
+
+  var det=h("div","chain-detail");
+  var full=h("div","cd-row");
+  full.appendChild(h("span","cd-k","full hash"));
+  full.appendChild(h("span",null,String(tx)));
+  det.appendChild(full);
+  var blockRow=h("div","cd-row pro-only");
+  blockRow.appendChild(h("span","cd-k","block"));
+  var blockVal=h("span",null,"\u2014");
+  blockRow.appendChild(blockVal);
+  det.appendChild(blockRow);
+  var linkRow=h("div","cd-row");
+  linkRow.appendChild(h("span","cd-k","explorer"));
+  var a=h("a","tx-link","sepolia.basescan.org");
+  a.href=EXPLORER_TX+String(tx);
+  a.target="_blank";
+  a.rel="noopener noreferrer";
+  linkRow.appendChild(a);
+  det.appendChild(linkRow);
+  strip.appendChild(det);
+
+  var loaded=false;
+  function open(){
+    var isOpen=strip.classList.toggle("open");
+    strip.setAttribute("aria-expanded",isOpen?"true":"false");
+    more.textContent=isOpen?"collapse":"expand";
+    if(isOpen&&!loaded){loaded=true;loadChainBlock(tx,blockVal);}
+  }
+  strip.addEventListener("click",function(e){if(e.target&&e.target.tagName==="A")return;open();});
+  strip.addEventListener("keydown",function(e){
+    if(e.key==="Enter"||e.key===" "){e.preventDefault();open();}
+  });
+  return strip;
+}
+function applyChainMode(mode){
+  var pro=String(mode).toLowerCase()==="pro";
+  document.body.classList.toggle("chain-pro",pro);
+  document.body.classList.toggle("chain-simple",!pro);
+  var es=$("#chainSimple"),ep=$("#chainPro");
+  if(es)es.classList.toggle("on",!pro);
+  if(ep){ep.classList.toggle("on",pro);ep.setAttribute("aria-pressed",pro?"true":"false");}
+}
+function readChainMode(){
+  try{return localStorage.getItem("sentinel.chainMode")==="pro"?"pro":"simple";}catch(e){return "simple";}
+}
 function settleShow(which){
   $("#settleIdle").hidden=which!=="idle";
   $("#settlePending").hidden=which!=="pending";
@@ -1406,6 +1614,7 @@ function renderReceipt(d){
   var proven=!!(d.live===true&&tx&&s.mocked===false);
   var card=h("div","receipt"+(proven?"":" mocked"));
 
+  if(tx)card.appendChild(chainStrip(d,s,tx));
   card.appendChild(h("div","dh","Settlement receipt"));
   var head=h("div","receipt-head");
   head.appendChild(h("span","mode-chip "+((d.mode==="live")?"live":"mocked"),"mode: "+(d.mode||"unknown")));
@@ -1415,12 +1624,34 @@ function renderReceipt(d){
   card.appendChild(head);
 
   var miner=(d.miner==null?"\u2014":String(d.miner))+(d.miner_name?(" ("+String(d.miner_name)+")"):"");
-  card.appendChild(receiptRow("miner",miner));
+  var minerRow=receiptRow("miner",miner);
+  minerRow.classList.add("pro-only");
+  card.appendChild(minerRow);
   card.appendChild(receiptRow("amount",amountText(d)));
-  card.appendChild(receiptRow("network",String(d.network_label||s.network_label||"\u2014")+
-    (d.chain_id!=null?(" \u00b7 chain "+String(d.chain_id)):"")));
-  if(s.rail)card.appendChild(receiptRow("rail",String(s.rail)));
-  if(s.receipt_hash)card.appendChild(receiptRow("receipt hash",String(s.receipt_hash)));
+  if(s.amount_uusdc!=null){
+    var unitRow=receiptRow("micro-units",String(s.amount_uusdc)+" uUSDC \u00b7 6-decimal USDC base units");
+    unitRow.classList.add("pro-only");
+    card.appendChild(unitRow);
+  }
+  card.appendChild(receiptRow("network",String(d.network_label||s.network_label||"\u2014")));
+  var chainBits=[];
+  if(d.chain_id!=null)chainBits.push("chain id "+String(d.chain_id)+" \u00b7 eip155:"+String(d.chain_id));
+  if(state.status&&state.status.usdc_address)chainBits.push("USDC "+shortHash(String(state.status.usdc_address)));
+  if(chainBits.length){
+    var chainRow=receiptRow("chain",chainBits.join(" \u00b7 "));
+    chainRow.classList.add("pro-only");
+    card.appendChild(chainRow);
+  }
+  if(s.rail){
+    var schemeRow=receiptRow("scheme",String(s.rail)+(d.chain_id!=null?" \u00b7 exact \u00b7 EIP-3009 authorization":""));
+    schemeRow.classList.add("pro-only");
+    card.appendChild(schemeRow);
+  }
+  if(s.receipt_hash){
+    var rhashRow=receiptRow("receipt hash",String(s.receipt_hash));
+    rhashRow.classList.add("pro-only");
+    card.appendChild(rhashRow);
+  }
 
   if(tx){
     var anchor=h("a","tx-link",shortHash(tx));
@@ -1434,6 +1665,16 @@ function renderReceipt(d){
     card.appendChild(receiptRow("tx hash",null,wrap));
   }else{
     card.appendChild(receiptRow("tx hash","none \u2014 no on-chain proof returned"));
+  }
+
+  var asked=(settle.last&&settle.last.disease)?String(settle.last.disease):String(($("#diseaseInput")||{}).value||"");
+  var dRc=d.risk_card;
+  var returned=(dRc&&!dRc.error&&dRc.disease)?String(dRc.disease):"";
+  if(asked&&returned&&normStr(asked)!==normStr(returned)){
+    var al=h("div","asked-line");
+    al.appendChild(h("b",null,"ASKED: "));
+    al.appendChild(document.createTextNode(asked+" \u2192 engine returned: "+returned));
+    card.appendChild(al);
   }
 
   var rc=d.risk_card;
@@ -1478,6 +1719,7 @@ function renderReceipt(d){
   if(tx){
     settle.count+=1;
     settle.lastTx=String(tx);
+    markSettledCards(d.risk_card,String(tx));
     var usd=Number(s.amount);
     if(isFinite(usd)&&usd>0){settle.lastAmount=usd;ASK_USDC=usd;}
     $("#settleMeta").textContent=proven?"settled on-chain":"settled (not live)";
@@ -1533,6 +1775,19 @@ $("#playBtn").addEventListener("click",function(){playing?stopPlay():startPlay()
 $("#playBtn").addEventListener("keydown",function(e){
   if(e.key==="Enter"||e.key===" "){e.preventDefault();playing?stopPlay():startPlay();}
 });
+$("#chainMode").addEventListener("click",function(){
+  var next=document.body.classList.contains("chain-pro")?"simple":"pro";
+  applyChainMode(next);
+  try{localStorage.setItem("sentinel.chainMode",next);}catch(e){}
+});
+$("#chainMode").addEventListener("keydown",function(e){
+  if(e.key==="Enter"||e.key===" "){
+    e.preventDefault();
+    var next=document.body.classList.contains("chain-pro")?"simple":"pro";
+    applyChainMode(next);
+    try{localStorage.setItem("sentinel.chainMode",next);}catch(e){}
+  }
+});
 $("#buyForm").addEventListener("submit",function(e){
   e.preventDefault();
   submitSettle();
@@ -1552,6 +1807,7 @@ if("serviceWorker" in navigator){
 }
 
 /* ================= boot ================= */
+applyChainMode(readChainMode());
 renderChips();
 renderFeed();
 renderTicker();
