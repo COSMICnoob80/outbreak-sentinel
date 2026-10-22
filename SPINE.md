@@ -698,3 +698,95 @@ rather than inventing a hosted link.
 ### Note for the next owner
 `demo/RECORDING.md` still says 1080p / 30 fps and uses `:8000` in places; it was not in this task's file
 list and was left untouched. Align it to the 60 fps / `:8001` shotlist before a recording session.
+
+---
+
+## 📊 CHECKPOINT 2026-10-22 (later still) — global city tier (Soldier-I)
+
+### Requirement
+Boss: global city leads alongside Pakistani ones. `/risk` returned only 5 Pakistani cities.
+
+### Root cause — not the visible symptom
+Extending `outbreak_sentinel.default_config()` alone would have changed **nothing** live. Two
+overrides sat on top of it:
+1. **`app.py` carried its own duplicated default config** (`load_config()`, a full copy of
+   cities/diseases/keywords/thresholds/groq). `/risk` builds from `app.CONFIG`, so the duplicate was
+   the binding list.
+2. **`config.yaml` lists cities/diseases/keywords explicitly**, and *both* loaders merge YAML
+   **over** defaults (`defaults[k] = user[k]` for non-dict values) — so the 5-city YAML would have
+   kept winning even after a defaults-only edit.
+The fix therefore had to touch the engine default, the API's duplicate, and the deployed YAML.
+
+### What shipped
+- **`outbreak_sentinel.py::default_config()`** — two-tier grid, 10 cities, each with `region`:
+  Pakistan (coords unchanged): Karachi 24.8607,67.0011 · Lahore 31.5204,74.3587 ·
+  Islamabad 33.6844,73.0479 · Peshawar 34.0151,71.5249 · Quetta 30.1798,66.9750.
+  Global: Ludhiana IN 30.9010,75.8573 · Amritsar IN 31.6340,74.8723 ·
+  Columbia SC US 34.0007,-81.0348 · Anchorage AK US 61.2181,-149.9003 ·
+  Amsterdam NL 52.3676,4.9041.
+  `diseases` += measles, pertussis, mpox (8 total). `news_keywords` += measles outbreak,
+  pertussis outbreak, mpox cases (10). `social_keywords` += whooping cough (7).
+- **`app.py`** — deleted the duplicated defaults; `load_config()` now calls `default_config()` from
+  the engine (single source of truth). `region: Optional[str] = None` added to the strict `RiskCard`
+  model **and** to `_CARD_EXTRA_KEYS` (without both, pydantic/the field filter would silently drop
+  it). New `_region_by_city()`; `_attach_card_extras()` stamps `card["region"]` from the city config,
+  defaulting unconfigured cities to `"global"` — that is the one choke point reached by both `/risk`
+  and `/telegraph/risk`. The late `from outbreak_sentinel import load_env_file, fuse_with_groq` was
+  folded into the top-level import.
+- **`config.yaml`** — same 10-city grid with `region`, 8 diseases, 10 news / 7 social keywords.
+- **`dashboard/index.html`** — `isPakistan()` name-set kept, but grouping now reads `card.region`
+  first via new `cardRegion()` (fallback to the name-set so the static demo dataset, which has no
+  `region`, still groups). `renderCards` partition changed one line; layout untouched.
+- **`dashboard/service-worker.js`** — `CACHE_NAME` v5 → **`v6`** (cache-first shell would otherwise
+  hide the change from returning browsers).
+
+### Backward compatibility (checked before editing)
+Only four `config["cities"]` consumers exist: `app.py:141` (`fetch_weather` — reads `lat`/`lon`),
+`app.py:363` (`/cities` — reads `name`), `outbreak_sentinel.py:536` (`fetch_weather`), and
+`verticals/bio_surveillance.py:45` (maps `name/lat/lon`). None unpack the dict or index a fixed
+length, so the added `region` key is inert to all of them. No test asserted a 5-city count, so no
+assertion needed changing.
+
+### Verified
+- `pytest`: **3 passed before**, **3 passed after** (same three receipt tests — the suite has no
+  city-count test, so nothing needed relaxing).
+- `compileall -q app.py outbreak_sentinel.py` clean; extracted inline script (51,773 bytes) →
+  `node --check` **PASS**; `node --check dashboard/service-worker.js` **PASS**.
+- Config load: **10 cities**, 8 diseases, 10 news / 7 social keywords, regions as configured.
+- **Own uvicorn on 127.0.0.1:8003** (8001 — the boss's live console — never touched; 8002 left free):
+  - probe 1: `GET /risk` → **200** in 19.4 s, `engine: rule-based`, 5 cards; every card carried
+    `region` (`pakistan` ×3, `global` ×2 — Amritsar, Anchorage).
+  - probe 2: `GET /risk` → **200** in 12.8 s, `engine: llm`, **13 cards**: all 10 configured cities
+    with correct regions (`Pakistan: Karachi, Lahore, Islamabad, Peshawar, Quetta` /
+    `Global: Ludhiana, Amritsar, Columbia, Anchorage, Amsterdam`) **plus 3 LLM-invented cities —
+    Chattogram, Rajshahi, Bahrain — each defaulted to `region: "global"`**, exactly the required
+    fallback. **13/13 cards had `region`.**
+  - `GET /cities` → 10 names (5 PK + 5 global); `GET /diseases` → 8; `GET /dashboard/` → 200,
+    92,310 bytes served.
+  - Grouping executed against the **live** payload (node, same helpers): `PAKISTAN [5]`,
+    `GLOBAL [8]`, both headers emitted.
+  - Server on 8003 killed afterwards; `ss` confirmed 8001 still listening and answering `/health` 200.
+
+### Commits
+- `ed51056` — `feat(engine): global city tier — 5 international sentinel cities + measles/pertussis/mpox panel + region on cards` (pushed `a182ca3..ed51056`)
+- followed by `docs(spine): checkpoint soldier-I global tier`
+
+### Honest caveats / for the next owner
+1. **Transient city drop under burst.** On probe 1 only 5 of 10 cities reached `all_weather`; a
+   direct 10-city `fetch_weather` gather immediately after returned **10/10**, and probe 2 included
+   all 10. So the cause is transient (a weather fetch error during the ~27-request burst in
+   `collect_signals`, which filters `"error" in w` silently) — not a config bug. `collect_signals`
+   has no retry, so a global city can vanish from a single render without warning. A bounded retry
+   for failed weather fetches is the real fix and is **not** implemented here.
+2. **LLM fusion is non-deterministic and can invent cities.** Probe 2 returned Chattogram, Rajshahi
+   and Bahrain. They now carry `region: "global"` (correct, no crash), but they are not in the
+   configured grid and appear in the GLOBAL group. The engine also emitted
+   `Healthcare‑Associated Infection` — a disease outside the 8-item panel.
+3. **`fetch_weather` hardcodes `timezone: "Asia/Karachi"`** for every city, so forecast date labels
+   for Anchorage/Amsterdam/Columbia are offset relative to local time. Not a risk-score change (the
+   chart only uses precipitation values), but a per-city timezone field is the honest fix.
+4. **Supersedes Soldier-H's note** that "`config.yaml` lists 5 cities": it now lists 10, so their
+   `demo/SCRIPT-60s.md` "ten-plus cities" breadth line is true at config level. `demo/` and
+   `state/hackathon-state.md` were not touched here (Soldier-H's lane).
+5. Settlement logic and the receipt ledger are untouched; `/telegraph/risk` inherits `region` through
+   `_attach_card_extras` (its `risk_card` is `dict(cards[0])`, not the pydantic model).
