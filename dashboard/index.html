@@ -653,7 +653,7 @@ function hash32(s){
 }
 function normStr(x){return String(x==null?"":x).trim().toLowerCase().replace(/\s+/g," ");}
 
-/* Pakistan vs global — UI-layer classification only (no engine/config change) */
+/* Pakistan vs global — engine supplies card.region; name-set kept only as a fallback */
 var PK_CITIES={
   "karachi":1,"lahore":1,"islamabad":1,"rawalpindi":1,"peshawar":1,"quetta":1,
   "faisalabad":1,"multan":1,"hyderabad":1,"gujranwala":1,"sialkot":1,"sukkur":1,
@@ -664,6 +664,11 @@ var PK_CITIES={
   "thatta":1,"badin":1,"mansehra":1,"nowshera":1,"charsadda":1,"kasur":1,"gujrat":1
 };
 function isPakistan(city){return !!PK_CITIES[normStr(city)];}
+function cardRegion(c){
+  var r=c&&c.region;
+  if(r==="pakistan"||r==="global")return r;              /* engine truth */
+  return isPakistan(c&&c.city)?"pakistan":"global";      /* fallback: static demo data */
+}
 
 /* headline-only severity heuristics for per-item estimates */
 var HOT_RX=/outbreak|death|deaths|died|fatal|surge|spike|soar|ris(e|ing)|jump|cluster|epidemic|pandemic|crisis|emergenc|contaminat|positive|hospitali[sz]|admission|panic|warning|alert|spread|infect|cases?/gi;
@@ -1018,7 +1023,7 @@ function renderCards(){
   var host=$("#stateCards");
   clear(host);
   var pk=[],gl=[];
-  list.forEach(function(c){(isPakistan(c.city)?pk:gl).push(c);});
+  list.forEach(function(c){(cardRegion(c)==="pakistan"?pk:gl).push(c);});
   if(pk.length)host.appendChild(groupBlock("PAKISTAN",pk));
   if(gl.length)host.appendChild(groupBlock("GLOBAL",gl));
   setCardState("cards");

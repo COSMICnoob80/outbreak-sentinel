@@ -70,21 +70,32 @@ class C:
 
 def default_config() -> dict:
     return {
+        # Two tiers: Pakistan (home sentinel grid) then global reference cities.
+        # "region" is propagated onto every risk card by the API layer.
         "cities": [
-            {"name": "Karachi", "lat": 24.8607, "lon": 67.0011},
-            {"name": "Lahore", "lat": 31.5204, "lon": 74.3587},
-            {"name": "Islamabad", "lat": 33.6844, "lon": 73.0479},
-            {"name": "Peshawar", "lat": 34.0151, "lon": 71.5249},
-            {"name": "Quetta", "lat": 30.1798, "lon": 66.9750},
+            {"name": "Karachi", "lat": 24.8607, "lon": 67.0011, "region": "pakistan"},
+            {"name": "Lahore", "lat": 31.5204, "lon": 74.3587, "region": "pakistan"},
+            {"name": "Islamabad", "lat": 33.6844, "lon": 73.0479, "region": "pakistan"},
+            {"name": "Peshawar", "lat": 34.0151, "lon": 71.5249, "region": "pakistan"},
+            {"name": "Quetta", "lat": 30.1798, "lon": 66.9750, "region": "pakistan"},
+            {"name": "Ludhiana", "lat": 30.9010, "lon": 75.8573, "region": "global"},
+            {"name": "Amritsar", "lat": 31.6340, "lon": 74.8723, "region": "global"},
+            {"name": "Columbia", "lat": 34.0007, "lon": -81.0348, "region": "global"},
+            {"name": "Anchorage", "lat": 61.2181, "lon": -149.9003, "region": "global"},
+            {"name": "Amsterdam", "lat": 52.3676, "lon": 4.9041, "region": "global"},
         ],
-        "diseases": ["dengue", "malaria", "cholera", "typhoid", "hepatitis"],
+        "diseases": [
+            "dengue", "malaria", "cholera", "typhoid", "hepatitis",
+            "measles", "pertussis", "mpox",
+        ],
         "news_keywords": [
             "dengue outbreak", "malaria cases", "cholera", "typhoid",
             "hepatitis", "fever outbreak", "hospital patients",
+            "measles outbreak", "pertussis outbreak", "mpox cases",
         ],
         "social_keywords": [
             "dengue symptoms", "malaria symptoms", "fever", "sick",
-            "hospital overflow", "patients",
+            "hospital overflow", "patients", "whooping cough",
         ],
         "thresholds": {
             "news_high": 10,

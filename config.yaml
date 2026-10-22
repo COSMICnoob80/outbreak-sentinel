@@ -1,22 +1,48 @@
 # Outbreak Sentinel Configuration
 
-# Cities to monitor (Pakistan)
+# Cities to monitor — two tiers: Pakistan grid, then global reference cities.
+# "region" propagates onto every /risk card.
 cities:
   - name: Karachi
     lat: 24.8607
     lon: 67.0011
+    region: pakistan
   - name: Lahore
     lat: 31.5204
     lon: 74.3587
+    region: pakistan
   - name: Islamabad
     lat: 33.6844
     lon: 73.0479
+    region: pakistan
   - name: Peshawar
     lat: 34.0151
     lon: 71.5249
+    region: pakistan
   - name: Quetta
     lat: 30.1798
     lon: 66.9750
+    region: pakistan
+  - name: Ludhiana
+    lat: 30.9010
+    lon: 75.8573
+    region: global
+  - name: Amritsar
+    lat: 31.6340
+    lon: 74.8723
+    region: global
+  - name: Columbia
+    lat: 34.0007
+    lon: -81.0348
+    region: global
+  - name: Anchorage
+    lat: 61.2181
+    lon: -149.9003
+    region: global
+  - name: Amsterdam
+    lat: 52.3676
+    lon: 4.9041
+    region: global
 
 # Diseases to track
 diseases:
@@ -25,6 +51,9 @@ diseases:
   - cholera
   - typhoid
   - hepatitis
+  - measles
+  - pertussis
+  - mpox
 
 # News search keywords (fetched via Google News RSS)
 news_keywords:
@@ -35,6 +64,9 @@ news_keywords:
   - "hepatitis"
   - "fever outbreak"
   - "hospital patients"
+  - "measles outbreak"
+  - "pertussis outbreak"
+  - "mpox cases"
 
 # Social/sentiment keywords (fetched via Google News RSS as proxy)
 social_keywords:
@@ -44,6 +76,7 @@ social_keywords:
   - "sick"
   - "hospital overflow"
   - "patients"
+  - "whooping cough"
 
 # Risk thresholds for rule-based scoring (used as fallback)
 thresholds:

@@ -17,6 +17,7 @@ from fastapi.responses import FileResponse, RedirectResponse
 from pydantic import BaseModel
 from receipts import ReceiptStore, make_receipt
 from publish import publish_cards
+from outbreak_sentinel import default_config, fuse_with_groq, load_env_file
 
 app = FastAPI(title="Outbreak Sentinel", version="1.0.0")
 
@@ -24,31 +25,8 @@ app = FastAPI(title="Outbreak Sentinel", version="1.0.0")
 
 def load_config(path: str = "config.yaml") -> dict:
     config_path = os.path.join(os.path.dirname(__file__), path)
-    defaults = {
-        "cities": [
-            {"name": "Karachi", "lat": 24.8607, "lon": 67.0011},
-            {"name": "Lahore", "lat": 31.5204, "lon": 74.3587},
-            {"name": "Islamabad", "lat": 33.6844, "lon": 73.0479},
-            {"name": "Peshawar", "lat": 34.0151, "lon": 71.5249},
-            {"name": "Quetta", "lat": 30.1798, "lon": 66.9750},
-        ],
-        "diseases": ["dengue", "malaria", "cholera", "typhoid", "hepatitis"],
-        "news_keywords": [
-            "dengue outbreak", "malaria cases", "cholera", "typhoid",
-            "hepatitis", "fever outbreak", "hospital patients",
-        ],
-        "social_keywords": [
-            "dengue symptoms", "malaria symptoms", "fever", "sick",
-            "hospital overflow", "patients",
-        ],
-        "thresholds": {
-            "news_high": 10, "news_medium": 5,
-            "sentiment_high": 0.6, "sentiment_medium": 0.3,
-            "temp_high": 35.0, "rain_high": 50.0,
-        },
-        "groq": {"model": "llama-3.3-70b-versatile", "api_key_env": "GROQ_API_KEY"},
-        "lookback_hours": 24,
-    }
+    # Single source of truth: the engine's defaults (no duplicated city grid).
+    defaults = default_config()
     if not os.path.exists(config_path):
         return defaults
     with open(config_path) as f:
@@ -160,6 +138,7 @@ class RiskCard(BaseModel):
     summary: Optional[str] = None              # LLM narrative (or rule-based when LLM down)
     chart: Optional[list[dict]] = None         # [{label, value}] — 7-day forecast sparkline
     illustration_hint: Optional[str] = None    # machine string for dashboard art
+    region: Optional[str] = None               # "pakistan" | "global" (from city config)
 
 class RiskResponse(BaseModel):
     timestamp: str
@@ -169,7 +148,7 @@ class RiskResponse(BaseModel):
 
 
 _CARD_KEYS = ("city", "disease", "risk_level", "confidence", "drivers", "recommendation")
-_CARD_EXTRA_KEYS = ("sources", "summary", "chart", "illustration_hint")
+_CARD_EXTRA_KEYS = ("sources", "summary", "chart", "illustration_hint", "region")
 _CARD_FIELDS = _CARD_KEYS + _CARD_EXTRA_KEYS
 
 
@@ -205,6 +184,14 @@ def _norm_card(c: dict, disease: str, fallback: dict | None = None) -> dict:
 
 def _weather_by_city(weather: list) -> dict:
     return {w["city"].lower(): w for w in weather if isinstance(w, dict) and w.get("city") and "forecast" in w}
+
+
+def _region_by_city() -> dict:
+    """Configured city name -> region. Unconfigured (LLM-invented) cities are global."""
+    return {
+        str(c.get("name", "")).strip().lower(): str(c.get("region") or "global")
+        for c in CONFIG.get("cities", [])
+    }
 
 
 def _pick_sources(news: list, city: str, disease: str, limit: int = 5) -> list[dict]:
@@ -255,8 +242,10 @@ def _illustration_hint(card: dict, weather: dict | None) -> str:
 
 def _attach_card_extras(cards: list, news: list, weather_map: dict, disease: str) -> list:
     """Attach sources/summary/chart/illustration_hint — additive, authentic only."""
+    regions = _region_by_city()
     for card in cards:
         city = card.get("city", "Unknown")
+        card["region"] = regions.get(str(city).strip().lower(), "global")
         w = weather_map.get(str(city).lower())
         if card.get("sources") is None:
             card["sources"] = _pick_sources(news, str(city), disease)
@@ -370,7 +359,6 @@ def list_diseases():
 # ── Channel adapters: universal inbound hook + health check ───────────
 
 from adapters import fan_out
-from outbreak_sentinel import load_env_file, fuse_with_groq
 
 load_env_file()
 
