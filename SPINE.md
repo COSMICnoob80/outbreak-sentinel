@@ -553,3 +553,85 @@ invented.
 `/telegraph/status` at runtime; `/telegraph/status` remains the only source for
 `explorer_tx_url`. Docs describing the dashboard as the buying page (Soldier-F
 note above) are unchanged.
+
+---
+
+## 📊 CHECKPOINT 2026-10-22 — console v5 polish (Soldier-G)
+
+### Why
+Boss eyeball-verified console v4 in a live browser (fed by `/risk` on port **8001**, owned by
+another process — not touched here). Their findings drove four card fixes, global-lead
+grouping, and a layered (non-jargon) chain receipt.
+
+### What shipped (`dashboard/index.html` only, single self-contained file)
+- **A1 — dead chip removed.** `CLICK TO PIN DETAILS` tag and its `.tag.pin-hint` CSS deleted.
+  Detail still reveals on desktop hover and toggles/pins on click (touch); cards now also
+  carry `aria-expanded`.
+- **A2 — asked vs returned.** Receipt renders a dim `ASKED: <form disease> → engine returned:
+  <returned disease>` line **only when they differ** (case/whitespace-insensitive compare).
+- **A3 — per-item signal estimates.** Feed items no longer repeat the card-level score. Each
+  source item gets `est. <n> ▲/▼ · conf <x.xx>` from its **own headline**: hot keywords
+  (outbreak/deaths/surge/cases/positive/admission/…) raise, cool keywords (routine/vaccine/
+  decline/calm/stabil/…) lower, plus a deterministic FNV-1a `hash32(headline)` jitter and
+  confidence wobble. Same headline → same estimate (verified: 4 real headlines yielded 50, 15,
+  12, 17 vs base 44, 14, 15, 15). Labelled `est.` with a tooltip: not a separate engine score.
+- **A4 — always-on mini sparkline.** New `.card-foot` row on **every** card. Series source:
+  **`risk_cards[].chart[].value`** (7 points as returned by `/risk`) when present; otherwise
+  the dashboard's existing 24-point `TL` calibration array, captioned `24h calib.` with a
+  tooltip stating it is aggregate (no per-city series was returned). Full chart unchanged in
+  the expanded detail.
+- **B — global leads grouping.** `renderCards` partitions the already-sorted list with a
+  UI-only Pakistani-city index and renders `PAKISTAN` then `GLOBAL` section labels; a header
+  is omitted when its group is empty. No truncation: every card `/risk` returns is rendered.
+  **No change** to `app.py`, `outbreak_sentinel.py` or `config.yaml` city config.
+- **C — chain parameters, layered.**
+  - **C1** top strip `SETTLED ON-CHAIN` + chain badge (`BASE SEPOLIA`, derived from
+    `network_label`) + short tx (`0xab12…ef34`); click/Enter expands full hash, explorer link,
+    and (PRO) the block, looked up lazily via `eth_getTransactionByHash` against
+    `state.status.rpc_url` — the API returns no block, so it is never invented.
+  - **C2** settled cards get a quiet card-foot chip `✓ receipt 0xab12…ef34` (explorer link,
+    `stopPropagation` so it does not toggle the pin). Only for cards matched to a **paid**
+    settlement via a `city|disease` map populated from the returned `risk_card`.
+  - **C3** one-sentence explainer under the settlement panel header: “Every paid assessment is
+    notarized on Base — a tamper-proof receipt nobody can alter.”
+  - **C4** one `SIMPLE / PRO` toggle in that header (default **SIMPLE**, persisted in
+    `localStorage["sentinel.chainMode"]`, body class `chain-pro`). `.pro-only` rows are hidden
+    by **default CSS** (safe even if JS never runs); PRO reveals miner, `amount_uusdc`
+    micro-units, chain id / `eip155:` / USDC address, scheme (`rail` + EIP-3009), receipt hash,
+    and block hex. SIMPLE keeps: amount in $, network name, mode/live + proven chips, tx strip.
+- **D** `dashboard/service-worker.js` `CACHE_NAME` `sentinel-shell-v4` → **`sentinel-shell-v5`**
+  (one line). `manifest.json` untouched.
+
+### Honest finding on the 10-city premise
+`GET /risk` did **not** return 10 cities in either probe. First probe (200, 8.9 s):
+**8 cards — Karachi, Lahore, Islamabad, Peshawar, Quetta, Surat, Rome, Colombo**.
+Verification probe (200, 6.3 s): **5 cards — Karachi, Peshawar, Lahore, Islamabad, Quetta**
+(LLM fusion is non-deterministic). None of Ludhiana / Amritsar / South Carolina / Alaska /
+Netherlands appeared. The dashboard was **not** filtering (it rendered all 8); grouping is now
+visible and future global cities will land under `GLOBAL` automatically.
+
+### Verified (own uvicorn on 127.0.0.1:8002 — 8001 untouched)
+- Extracted inline `<script>` (51,521 bytes) → `node --check` **PASS**;
+  `node --check dashboard/service-worker.js` **PASS**.
+- Static: 72 ids, **0 duplicates**; all **46** `$("#…")` refs resolve; `alert(` = 0;
+  **0** external `http(s)` `src/href` in the shell (no CDN/fonts).
+- `GET /risk` → **200**; `GET /telegraph/dashboard` → **200**, 92,005 bytes.
+- Served-HTML greps: `SETTLED ON-CHAIN` 1, `SIMPLE` 3, `PRO` 4, `ASKED:` 1, `PAKISTAN` 1,
+  `GLOBAL` 1, `est.` 2, `chainMode` 6, `notarized on Base` 1, `pro-only` 10,
+  `CLICK TO PIN` **0**, `pin-hint` **0**.
+- Grouping/estimator proven by executing the actual extracted helpers in Node against the
+  8-card payload: `PAKISTAN [Karachi, Lahore, Islamabad, Peshawar, Quetta]`,
+  `GLOBAL [Surat, Rome, Colombo]`, both headers emitted.
+- Server on 8002 killed after the run; the process on 8001 was never touched.
+
+### Commits
+- `4fef68a` — `feat(console): v5 — per-item signal scores, always-on sparkline, global leads grouping, layered chain receipts (SIMPLE/PRO)` (pushed `321e6f8..4fef68a`)
+- followed by `docs(spine): checkpoint soldier-G v5 polish`
+
+### Open / for the next owner
+- The engine's own card scores do not exist (`/risk` exposes no numeric score); the big number
+  and the mini-sparkline axis remain documented level-band + confidence derivations.
+- `chart` values from the live engine were mostly `0.0` in both probes, so several mini
+  sparklines render as honest flat lines; no synthetic series were substituted.
+- A live `POST /telegraph/risk` was **not** fired in this pass (no testnet spend), so the
+  receipt's C1/C2 rendering is syntax- and field-verified, not settlement-run-verified.
