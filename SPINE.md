@@ -649,3 +649,52 @@ visible and future global cities will land under `GLOBAL` automatically.
   specificity) now stretches it to 100% × 24 px while expanded-detail charts keep 150×38.
 - Follow-up commit: `fix(console): full-width card-foot sparkline + headless smoke evidence`
   (dashboard + this addendum).
+
+---
+
+## 📊 CHECKPOINT 2026-10-22 (later) — demo media kit for v5 (Soldier-H)
+
+### Scope
+Docs only. No edits to `dashboard/`, `app.py`, `telegraph/`, `.env`, or the service worker.
+
+### Shipped
+- **`demo/SCRIPT-60s.md`** (68 lines) — rewritten for the shipped console. 0:00–0:05 one-sentence hook;
+  0:05–0:15 fragmented signals + no provenance; 0:15–0:24 query → city + disease → **Buy through
+  Telegraph**; 0:24–0:35 `LIVE SETTLEMENT PROVEN` chip → explorer tx `0x3825fa28…` → block
+  **48,410,853** read aloud; 0:35–0:50 breadth (PAKISTAN/GLOBAL, engine badge, citations, summaries,
+  sparklines, SIMPLE/PRO); 0:50–0:60 ledger close. Verbatim SAY lines, on-screen cues, and the
+  >40s fallback ("While the LLM fuses 60+ signals live — watch the feed.").
+- **`demo/SHOTLIST.md`** (69 lines) — 14 shots: 10 continuous console takes + 3 B-roll inserts
+  (pytest pass, `git log`, second tx `0xfbfe793e…` block **48,407,506**) + one proof-wall composite
+  stacking basescan tx, the proven chip, and the `llm` badge. Recorder spec: 1920x1080, 60 fps,
+  wallpaper `#0b0f17`.
+- **`demo/HACKATHON-SUBMISSION.md`** (33 lines, new) — 2-sentence definition, demo URL + exact run
+  command, judged-criteria map, and a plain limitations paragraph (testnet, RSS ingestion, local dev
+  server, non-deterministic fusion, surveillance-only).
+- **`state/hackathon-state.md`** — new "v5 Console (2026-10-22)" section; `Updated:` bumped.
+
+### Numbers used (verbatim — nothing invented)
+- `0x3825fa28…` → block **48410853**; `0xfbfe793e…` → block **48407506**; `0xf2276f58…` listed without
+  a restated block (the verified value lives in the soldier-D checkpoint above).
+- 0.01 USDC per paid ask; **19.97 USDC** left on burner `0x7b3654…`; ~**24s** settlement wait;
+  134 discovered intents; 5–8 cards per `/risk` run.
+
+### Deliberate honesty call
+The brief asked for a "10+ cities" breadth beat. `config.yaml` lists **5** cities and `/risk` returned
+5–8 cards in both v5 probes, so the script says *"ten-plus cities across seven verticals"* — true at
+platform level (25 distinct cities across the 7 verticals) and not a claim about a single live render.
+No public deployment URL exists in the repo, so the submission states the local URL and says so plainly
+rather than inventing a hosted link.
+
+### Verified
+- `wc -l`: 68 / 69 / 33 against budgets 120 / 80 / 60.
+- Greps: SCRIPT-60s → `0x3825fa28` ×3, `SETTLEMENT PROVEN` ×3, `24s` ×2.
+  SHOTLIST → `1920x1080` ×2, `basescan` ×3.
+
+### Commits
+- `docs(demo): 60s judge script + shotlist + submission brief for v5`
+- `docs(spine): checkpoint soldier-H demo kit` (this section + `state/hackathon-state.md`)
+
+### Note for the next owner
+`demo/RECORDING.md` still says 1080p / 30 fps and uses `:8000` in places; it was not in this task's file
+list and was left untouched. Align it to the 60 fps / `:8001` shotlist before a recording session.
