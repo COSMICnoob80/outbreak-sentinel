@@ -635,3 +635,17 @@ visible and future global cities will land under `GLOBAL` automatically.
   sparklines render as honest flat lines; no synthetic series were substituted.
 - A live `POST /telegraph/risk` was **not** fired in this pass (no testnet spend), so the
   receipt's C1/C2 rendering is syntax- and field-verified, not settlement-run-verified.
+
+### Addendum — headless smoke test (same day, follow-up fix)
+- Rendered `http://127.0.0.1:8002/dashboard/` in **headless Chrome** (1400×2200, 40 s
+  virtual-time budget). Runtime clean, **no uncaught console errors**. That render got
+  **8 live cards with both `PAKISTAN` and `GLOBAL` headers** (Karachi, Peshawar, Lahore,
+  Islamabad, Quetta + 3 global), **8/8 card-foot mini sparklines**, `body.chain-simple`,
+  toggle labels `SIMPLE`/`PRO`, and a feed value line `est. 60 ▲ · conf 0.57` — A3/A4/B and
+  the SIMPLE default are now proven in a real DOM, not just by grep.
+- **Bug found by that test and fixed:** `sparkSVG` emitted inline
+  `style="width:150px;height:38px"`, which outranked the `.card-foot .mini svg` rule, so the
+  mini chart stayed 150 px. Size moved into a `.spark-svg` CSS class; the foot rule (higher
+  specificity) now stretches it to 100% × 24 px while expanded-detail charts keep 150×38.
+- Follow-up commit: `fix(console): full-width card-foot sparkline + headless smoke evidence`
+  (dashboard + this addendum).

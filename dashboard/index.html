@@ -223,6 +223,7 @@
   .resolved-OPEN{color:var(--amber);}
   .resolved-CONFIRMED{color:var(--ok);}
   .resolved-REFUTED{color:#f87171;}
+  .spark-svg{width:150px;height:38px;display:block;}
   .spark-wrap{display:flex;flex-direction:column;align-items:flex-end;gap:3px;margin-top:10px;}
   .spark-foot{display:flex;gap:9px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:9.5px;color:var(--dim-2);}
   .spark-foot b{color:var(--dim);font-weight:600;}
@@ -846,7 +847,7 @@ function sparkSVG(pts,color,uid){
     line+=(i===0?"M":"L")+x.toFixed(1)+" "+y.toFixed(1)+" ";
   }
   area=line+"L"+x.toFixed(1)+" "+h2+" L"+p+" "+h2+" Z";
-  return '<svg class="spark-svg" viewBox="0 0 150 38" preserveAspectRatio="none" aria-hidden="true" style="width:150px;height:38px;display:block">'+
+  return '<svg class="spark-svg" viewBox="0 0 150 38" preserveAspectRatio="none" aria-hidden="true">'+
     '<defs><linearGradient id="'+esc(uid)+'" x1="0" y1="0" x2="0" y2="1">'+
     '<stop offset="0" stop-color="'+esc(color)+'" stop-opacity=".38"/>'+
     '<stop offset="1" stop-color="'+esc(color)+'" stop-opacity="0"/></linearGradient></defs>'+
