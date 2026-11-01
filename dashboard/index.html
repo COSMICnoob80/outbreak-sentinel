@@ -410,6 +410,9 @@
           <span class="sub-lab">intents</span>
         </div>
       </div>
+      <div class="tools-row">
+        <span class="live-sub" id="surfaceStats" title="Consumer surface telemetry — GET /telegraph/stats">assessments: — &middot; paid: — &middot; wallet: —</span>
+      </div>
     </div>
   </header>
 
@@ -1398,6 +1401,23 @@ function renderIntentsPanel(){
     grid.appendChild(cell);
   });
 }
+function loadStats(){
+  if(location.protocol==="file:")return;
+  fetch("/telegraph/stats",{cache:"no-store"})
+    .then(function(r){return r.ok?r.json():null;})
+    .then(function(d){
+      if(!d)return;
+      var node=$("#surfaceStats");
+      if(!node)return;
+      var n=Number(d.assessments)||0;
+      var paid=Number(d.total_usdc)||0;
+      var w=d.wallet_usdc;
+      node.textContent="assessments: "+n+" \u00b7 paid: $"+paid.toFixed(2)+
+        " \u00b7 wallet: "+(w==null?"\u2014":"$"+Number(w).toFixed(2));
+      node.title=d.wallet_error?("wallet unavailable \u2014 "+d.wallet_error):"live from GET /telegraph/stats";
+    })
+    .catch(function(){});
+}
 function loadStatus(){
   if(location.protocol==="file:")return;
   fetch("/telegraph/status",{cache:"no-store"})
@@ -1824,6 +1844,7 @@ settleShow("idle");
 loadRisk();
 loadIntents();
 loadStatus();
+loadStats();
 })();
 </script>
 </body>

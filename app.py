@@ -403,6 +403,7 @@ def health_check():
 
 from telegraph.config import TELEGRAPH_CONFIG, is_live
 from telegraph.client import TelegraphClient
+from telegraph import settlements
 
 _telegraph_client = TelegraphClient()
 
@@ -412,6 +413,21 @@ class TelegraphRiskRequest(BaseModel):
     city: Optional[str] = None
     disease: str = "dengue"
     vertical: Optional[str] = None
+    amount_uusdc: Optional[int] = None
+
+
+# Spend tiers exposed on /telegraph/assess. The amount actually settled is read
+# from the live 402 challenge (miner floor x demand multiplier) — the tier is an
+# advisory ceiling forwarded to the engine, never a price we can force.
+SPEND_TIERS = {10000: "essentials", 20000: "standard", 50000: "thorough"}
+
+
+def _first_sentence(text) -> Optional[str]:
+    """Verdict line for the consumer surfaces: one sentence, no score."""
+    value = str(text or "").strip()
+    if not value:
+        return None
+    return re.split(r"(?<=[.!?])\s+", value, maxsplit=1)[0]
 
 
 @app.post("/telegraph/risk")
@@ -422,10 +438,13 @@ async def telegraph_risk(req: TelegraphRiskRequest):
     # Settlement must never 500 this endpoint: any failure degrades to a non-500
     # payload that states what went wrong in `settlement_error`.
     settlement_error = None
+    tier = SPEND_TIERS.get(req.amount_uusdc) if req.amount_uusdc else None
+    context = {"city": req.city, "disease": req.disease, "vertical": req.vertical}
+    if req.amount_uusdc:
+        context.update({"spend_tier": tier or "custom",
+                        "amount_uusdc_requested": str(req.amount_uusdc)})
     try:
-        proof = await _telegraph_client.buy_intelligence(
-            req.query, context={"city": req.city, "disease": req.disease, "vertical": req.vertical}
-        )
+        proof = await _telegraph_client.buy_intelligence(req.query, context=context)
     except Exception as exc:
         settlement_error = f"{type(exc).__name__}: {exc}"
         proof = {
@@ -497,8 +516,43 @@ async def telegraph_risk(req: TelegraphRiskRequest):
     if proof.get("error"):
         settlement_error = str(proof["error"])
 
+    # One row per assessment: the public ledger and the console telemetry read
+    # the same file, so the two surfaces cannot disagree. Persistence failure is
+    # reported in settlement_error, never raised.
+    ledger_row = None
+    try:
+        card = risk_card if isinstance(risk_card, dict) else {}
+        ledger_row = settlements.record({
+            "query": req.query,
+            "city": req.city or card.get("city"),
+            "disease": req.disease,
+            "vertical": req.vertical,
+            "spend_tier": tier,
+            "amount_uusdc_requested": str(req.amount_uusdc) if req.amount_uusdc else None,
+            "amount_uusdc": settlement_view.get("amount_uusdc"),
+            "amount_usd": settlement_view.get("amount"),
+            "mode": proof.get("mode"),
+            "live": bool(proof.get("live")),
+            "mocked": settlement_view.get("mocked"),
+            "miner": settlement_view.get("miner"),
+            "miner_name": settlement_view.get("miner_name"),
+            "tx_hash": settlement_view.get("tx_hash"),
+            "risk_level": card.get("risk_level"),
+            "confidence": card.get("confidence"),
+            "drivers": (card.get("drivers") or [])[:3],
+            "sources_count": len(card.get("sources") or []),
+            "verdict": _first_sentence(card.get("summary")),
+            "engine": engine,
+            "settlement_error": settlement_error,
+        })
+    except Exception as exc:
+        settlement_error = settlement_error or f"ledger_record_failed: {type(exc).__name__}: {exc}"
+
     return {
         "request": {"query": req.query, "city": req.city, "disease": req.disease, "vertical": req.vertical},
+        "spend_tier": tier,
+        "amount_uusdc_requested": req.amount_uusdc,
+        "ledger": ledger_row,
         "mode": proof.get("mode"),
         "live": proof.get("live", False),
         "ranked_answer": proof.get("ranked_answer"),
@@ -578,6 +632,78 @@ def telegraph_buying_layer():
     """Demo page for the Track 03 buying layer — not the default landing page."""
     path = os.path.join(os.path.dirname(__file__), "static", "telegraph.html")
     return FileResponse(path, media_type="text/html")
+
+
+@app.get("/telegraph/assess")
+def telegraph_assess():
+    """Self-serve consumer surface: one question in, one verdict + receipt out."""
+    path = os.path.join(os.path.dirname(__file__), "static", "assess", "index.html")
+    if not os.path.exists(path):
+        raise HTTPException(status_code=404, detail="assess page not deployed")
+    return FileResponse(path, media_type="text/html")
+
+
+@app.get("/telegraph/ledger")
+def telegraph_ledger():
+    """Public ledger: every settlement receipt this server knows about."""
+    path = os.path.join(os.path.dirname(__file__), "static", "ledger", "index.html")
+    if not os.path.exists(path):
+        raise HTTPException(status_code=404, detail="ledger page not deployed")
+    return FileResponse(path, media_type="text/html")
+
+
+_EVM_ADDRESS = re.compile(r"^0x[0-9a-fA-F]{40}$")
+
+
+async def _wallet_balance_usdc() -> tuple[Optional[float], Optional[str]]:
+    """USDC balance of the payer wallet, best effort.
+
+    Returns (balance, None) on success and (None, reason) otherwise. A mocked
+    proof carries a non-EVM payer address, so this degrades instead of inventing
+    a number.
+    """
+    proof = getattr(_telegraph_client, "last_proof", None) or {}
+    payer = str(proof.get("payer") or "")
+    if not _EVM_ADDRESS.match(payer):
+        return None, "no live payer address on record"
+    data = "0x70a08231" + "0" * 24 + payer[2:].lower()  # balanceOf(address)
+    payload = {
+        "jsonrpc": "2.0", "id": 1, "method": "eth_call",
+        "params": [{"to": TELEGRAPH_CONFIG["usdc_address"], "data": data}, "latest"],
+    }
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                TELEGRAPH_CONFIG["rpc_url"], json=payload,
+                timeout=aiohttp.ClientTimeout(total=6),
+            ) as r:
+                if r.status != 200:
+                    return None, f"RPC HTTP {r.status}"
+                body = await r.json()
+    except Exception as exc:
+        return None, f"{type(exc).__name__}: {exc}"
+    raw = body.get("result")
+    if not isinstance(raw, str) or not raw.startswith("0x") or raw == "0x":
+        return None, str(body.get("error") or "no balance returned")
+    try:
+        return round(int(raw, 16) / 1_000_000, 4), None
+    except ValueError:
+        return None, "unparseable balance"
+
+
+@app.get("/telegraph/stats")
+async def telegraph_stats():
+    """Consumer-surface telemetry: assessments, spend, wallet, and the rows."""
+    rows = settlements.load()
+    stats = settlements.aggregate(rows)
+    wallet_usdc, wallet_error = await _wallet_balance_usdc()
+    return {
+        "generated_at": datetime.now(timezone(timedelta(hours=5))).strftime("%Y-%m-%d %H:%M PKT"),
+        **stats,
+        "wallet_usdc": wallet_usdc,
+        "wallet_error": wallet_error,
+        "settlements": list(reversed(rows[-200:])),
+    }
 
 
 # ── Static file mounts (PWA + dashboard) — additive ─────────────────────

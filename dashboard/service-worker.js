@@ -1,9 +1,11 @@
-const CACHE_NAME = "sentinel-shell-v6";
+const CACHE_NAME = "sentinel-shell-v7";
 const SHELL = [
   "/dashboard/",
   "/dashboard/index.html",
   "/dashboard/manifest.json",
   "/dashboard/icon.svg",
+  "/telegraph/assess",
+  "/telegraph/ledger",
 ];
 
 self.addEventListener("install", (event) => {

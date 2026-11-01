@@ -1,0 +1,374 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<meta name="color-scheme" content="dark"/>
+<meta name="theme-color" content="#0b0f17"/>
+<title>Outbreak Sentinel — Public Ledger</title>
+<style>
+  :root{
+    --bg:#0b0f17;
+    --panel:#111827;
+    --panel-2:#0f1626;
+    --border:#1f2937;
+    --text:#e5e7eb;
+    --dim:#8b98ac;
+    --dim-2:#5f6b7f;
+    --cyan:#38bdf8;
+    --amber:#fbbf24;
+    --ok:#4ade80;
+    --hi:#fb923c;
+    --crit:#f87171;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    background:
+      radial-gradient(900px 480px at 12% -12%, #16233d 0%, rgba(22,35,61,0) 62%),
+      radial-gradient(800px 420px at 112% -4%, #131c30 0%, rgba(19,28,48,0) 58%),
+      var(--bg);
+    color:var(--text);
+    font-family:system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    font-size:14px;
+    line-height:1.5;
+    min-height:100vh;
+    padding:16px 14px 40px;
+    -webkit-text-size-adjust:100%;
+  }
+  h1,h2,h3{margin:0;font-weight:600;letter-spacing:.01em;}
+  a{color:var(--cyan);text-decoration:none;}
+  a:hover{text-decoration:underline;}
+  button{font:inherit;color:inherit;background:none;border:0;cursor:pointer;}
+  :focus-visible{outline:2px solid var(--cyan);outline-offset:2px;border-radius:8px;}
+  [hidden]{display:none!important;}
+  .mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;}
+  .shell{max-width:960px;margin:0 auto;}
+
+  .brand-row{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;}
+  .brand{display:inline-flex;align-items:center;gap:9px;color:var(--text);font-weight:600;font-size:15px;}
+  .brand:hover{text-decoration:none;color:var(--text);}
+  .dot{width:9px;height:9px;border-radius:50%;background:var(--cyan);box-shadow:0 0 10px var(--cyan);display:inline-block;animation:dotGlow 2.6s ease-in-out infinite;}
+  @keyframes dotGlow{0%,100%{box-shadow:0 0 10px var(--cyan);}50%{box-shadow:0 0 18px rgba(56,189,248,.65);}}
+  .brand svg{display:block;color:var(--cyan);}
+  .nav{display:flex;gap:8px;flex-wrap:wrap;}
+  .nav a{
+    font-size:11.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--dim);
+    border:1px solid var(--border);border-radius:999px;padding:5px 11px;background:var(--panel);
+  }
+  .nav a:hover{color:var(--text);border-color:rgba(56,189,248,.45);text-decoration:none;}
+  .tagline{color:var(--dim);font-size:13.5px;margin:12px 0 16px;max-width:52ch;}
+  .tagline b{color:var(--text);font-weight:600;}
+
+  .panel{border:1px solid var(--border);border-radius:12px;background:var(--panel);padding:14px;margin-bottom:14px;}
+  .panel-head{display:flex;align-items:baseline;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:12px;}
+  .panel h2{font-size:11.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--dim);}
+  .panel .stamp{font-size:11px;color:var(--dim-2);font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;}
+
+  /* ---------- KPI strip ---------- */
+  .kpis{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;}
+  .kpi{background:var(--panel-2);border:1px solid var(--border);border-radius:10px;padding:11px 12px;}
+  .kpi .k{font-size:9.5px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--dim);display:block;}
+  .kpi .v{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:21px;font-weight:600;letter-spacing:-.02em;display:block;margin-top:5px;line-height:1.1;}
+  .kpi .n{font-size:10.5px;color:var(--dim-2);display:block;margin-top:3px;}
+  .kpi.ok .v{color:var(--ok);}
+
+  .dist{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px;}
+  .dist-item{
+    display:inline-flex;align-items:center;gap:6px;font-size:11px;
+    border:1px solid var(--border);border-radius:999px;padding:4px 10px;background:var(--panel-2);color:var(--dim);
+  }
+  .dist-item b{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11.5px;}
+  .dist-item.lv-low{color:var(--ok);border-color:rgba(74,222,128,.4);}
+  .dist-item.lv-moderate{color:var(--amber);border-color:rgba(251,191,36,.4);}
+  .dist-item.lv-high{color:var(--hi);border-color:rgba(251,146,60,.4);}
+  .dist-item.lv-critical{color:var(--crit);border-color:rgba(248,113,113,.4);}
+
+  /* ---------- rows ---------- */
+  .rows{display:grid;gap:8px;}
+  .row{
+    border:1px solid var(--border);border-left-width:3px;border-radius:10px;
+    background:var(--panel-2);padding:11px 12px;
+  }
+  .row.lv-low{border-left-color:var(--ok);}
+  .row.lv-moderate{border-left-color:var(--amber);}
+  .row.lv-high{border-left-color:var(--hi);}
+  .row.lv-critical{border-left-color:var(--crit);}
+  .r-top{display:flex;align-items:baseline;justify-content:space-between;gap:10px;flex-wrap:wrap;}
+  .r-place{font-size:13.5px;font-weight:600;color:var(--text);}
+  .r-place .dis{color:var(--dim);font-weight:400;}
+  .r-time{font-size:10.5px;color:var(--dim-2);font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;white-space:nowrap;}
+  .r-meta{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:8px;}
+  .tag{
+    font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;
+    padding:3px 8px;border-radius:999px;border:1px solid currentColor;
+  }
+  .tag.lv-low{color:var(--ok);background:rgba(74,222,128,.07);}
+  .tag.lv-moderate{color:var(--amber);background:rgba(251,191,36,.07);}
+  .tag.lv-high{color:var(--hi);background:rgba(251,146,60,.07);}
+  .tag.lv-critical{color:var(--crit);background:rgba(248,113,113,.07);}
+  .tag.mode-live{color:var(--ok);border-style:solid;border-color:rgba(74,222,128,.4);background:rgba(74,222,128,.07);}
+  .tag.mode-fail{color:var(--crit);border-color:rgba(248,113,113,.4);background:rgba(248,113,113,.07);letter-spacing:.08em;}
+  .tag.mode-mock{color:var(--dim);border-color:var(--border);background:transparent;letter-spacing:.08em;}
+  .dimtxt{font-size:11px;color:var(--dim-2);font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;}
+  .r-tx{margin-left:auto;font-size:11px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;}
+  .r-tx a{color:var(--cyan);}
+  .r-tx .none{color:var(--dim-2);}
+
+  .empty{border:1px dashed rgba(56,189,248,.35);border-radius:12px;background:rgba(56,189,248,.04);padding:26px 16px;text-align:center;}
+  .empty h3{font-size:14px;color:var(--text);margin-bottom:6px;}
+  .empty p{margin:0 0 14px;font-size:12.5px;color:var(--dim);}
+  .cta{
+    display:inline-block;font-size:12.5px;font-weight:600;padding:9px 18px;border-radius:999px;
+    background:var(--cyan);color:#04121e;
+  }
+  .cta:hover{text-decoration:none;filter:brightness(1.08);}
+
+  .loading{display:flex;align-items:center;gap:9px;font-size:12px;color:var(--dim);}
+  .spinner{width:13px;height:13px;border-radius:50%;border:2px solid rgba(56,189,248,.25);border-top-color:var(--cyan);animation:spin .9s linear infinite;flex:none;}
+  @keyframes spin{to{transform:rotate(360deg);}}
+  .sk{display:block;border-radius:6px;background:linear-gradient(90deg,#162131 25%,#1d2a3d 37%,#162131 63%);background-size:400% 100%;animation:shimmer 1.4s ease infinite;height:56px;margin-bottom:8px;}
+  @keyframes shimmer{0%{background-position:100% 0;}100%{background-position:0 0;}}
+
+  .error-box{border:1px solid rgba(248,113,113,.45);background:rgba(248,113,113,.07);border-radius:10px;padding:13px;}
+  .error-box p{margin:0;font-size:12.5px;color:var(--dim);word-break:break-word;}
+  .retry{
+    margin-top:11px;font-size:12.5px;padding:7px 15px;border-radius:999px;
+    border:1px solid rgba(56,189,248,.5);background:rgba(56,189,248,.1);color:var(--cyan);font-weight:600;
+  }
+
+  footer{margin-top:8px;color:var(--dim-2);font-size:11px;line-height:1.6;}
+  footer p{margin:0 0 4px;}
+
+  @media (min-width:640px){
+    body{padding:22px 20px 48px;}
+    .kpis{grid-template-columns:repeat(4,1fr);}
+    .panel{padding:18px;}
+  }
+  @media (prefers-reduced-motion:reduce){
+    *,*::before,*::after{animation:none!important;transition:none!important;}
+    .sk{background:#162131;}
+  }
+</style>
+</head>
+<body>
+<div class="shell">
+
+  <header class="brand-row">
+    <a class="brand" href="/telegraph/dashboard">
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M12 2 4 5.5v6c0 5 3.4 8.9 8 10.5 4.6-1.6 8-5.5 8-10.5v-6L12 2z"/>
+        <path d="M7.5 12.5h2.2l1.4-3 1.8 5 1.3-2h2.3"/>
+      </svg>
+      <span>Outbreak Sentinel</span>
+    </a>
+    <nav class="nav">
+      <a href="/telegraph/assess">Run an assessment</a>
+      <a href="/telegraph/dashboard">Console</a>
+    </nav>
+  </header>
+
+  <p class="tagline"><b>Every assessment, every payment, on the record.</b> Nothing here is editable — the ledger appends, it never rewrites.</p>
+
+  <main>
+    <section class="panel" aria-labelledby="kpiTitle">
+      <div class="panel-head">
+        <h2 id="kpiTitle">Ledger summary</h2>
+        <span class="stamp" id="stamp">loading…</span>
+      </div>
+      <div class="kpis" id="kpis"></div>
+      <div class="dist" id="dist"></div>
+    </section>
+
+    <section class="panel" aria-labelledby="rowsTitle">
+      <div class="panel-head">
+        <h2 id="rowsTitle">Settlement receipts</h2>
+        <span class="stamp" id="rowCount"></span>
+      </div>
+      <div id="rows" aria-live="polite">
+        <div class="loading"><span class="spinner"></span><span>reading the ledger…</span></div>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <p>Every assessment is a real payment to an independent miner — not a cached answer. Paid, not guessed.</p>
+    <p>Settlement runs on Base Sepolia (testnet). Surveillance, not diagnosis — never personal medical advice.</p>
+  </footer>
+</div>
+
+<script>
+(function(){
+  "use strict";
+
+  var EXPLORER = "https://sepolia.basescan.org/tx/";
+  var rowsEl = document.getElementById("rows");
+  var kpisEl = document.getElementById("kpis");
+  var distEl = document.getElementById("dist");
+  var stampEl = document.getElementById("stamp");
+  var countEl = document.getElementById("rowCount");
+
+  function el(tag, cls, text){
+    var n = document.createElement(tag);
+    if(cls) n.className = cls;
+    if(text != null) n.textContent = String(text);
+    return n;
+  }
+  function clear(node){ while(node && node.firstChild) node.removeChild(node.firstChild); }
+  function levelClass(level){
+    var l = String(level || "").toUpperCase();
+    if(l === "CRITICAL") return "lv-critical";
+    if(l === "HIGH") return "lv-high";
+    if(l === "MODERATE") return "lv-moderate";
+    return "lv-low";
+  }
+  function money(usd){
+    var n = Number(usd);
+    if(!isFinite(n)) return "$0.00";
+    return "$" + n.toFixed(n > 0 && n < 0.1 ? 3 : 2);
+  }
+  function shortHash(tx){
+    var s = String(tx || "");
+    return s.length > 18 ? s.slice(0, 10) + "…" + s.slice(-6) : s;
+  }
+
+  function kpi(label, value, note, ok){
+    var box = el("div", "kpi" + (ok ? " ok" : ""));
+    box.appendChild(el("span", "k", label));
+    box.appendChild(el("span", "v", value));
+    if(note) box.appendChild(el("span", "n", note));
+    return box;
+  }
+
+  function renderKpis(stats){
+    clear(kpisEl);
+    var assessments = Number(stats.assessments) || 0;
+    var settled = Number(stats.settled) || 0;
+    var total = Number(stats.total_usdc) || 0;
+    var integrity = stats.integrity_pct;
+
+    kpisEl.appendChild(kpi("Assessments", String(assessments), "run through the agent"));
+    kpisEl.appendChild(kpi("Settled on-chain", String(settled), settled ? "base sepolia" : "none yet"));
+    kpisEl.appendChild(kpi("Total USDC paid", money(total), "testnet value", settled > 0));
+    kpisEl.appendChild(kpi(
+      "Integrity",
+      integrity == null ? "—" : (Number(integrity).toFixed(0) + "%"),
+      integrity == null ? "no settlements to check" : (Number(integrity) >= 100 ? "one tx per receipt" : "hash mismatch"),
+      integrity != null && Number(integrity) >= 100
+    ));
+
+    clear(distEl);
+    var verdicts = (stats && stats.verdicts) || {};
+    ["LOW", "MODERATE", "HIGH", "CRITICAL"].forEach(function(level){
+      var item = el("span", "dist-item " + levelClass(level));
+      item.appendChild(document.createTextNode(level + " "));
+      item.appendChild(el("b", null, String(Number(verdicts[level]) || 0)));
+      distEl.appendChild(item);
+    });
+  }
+
+  function row(rec){
+    var level = String(rec.risk_level || "").toUpperCase();
+    var card = el("div", "row " + levelClass(level));
+
+    var top = el("div", "r-top");
+    var place = el("span", "r-place", String(rec.city || "unspecified city"));
+    if(rec.disease){
+      var dis = el("span", "dis", " · " + String(rec.disease));
+      place.appendChild(dis);
+    }
+    top.appendChild(place);
+    top.appendChild(el("span", "r-time", String(rec.time_pkt || "—")));
+    card.appendChild(top);
+
+    var meta = el("div", "r-meta");
+    if(level) meta.appendChild(el("span", "tag " + levelClass(level), level));
+    var isLive = rec.mode === "live" && !rec.mocked && rec.tx_hash;
+    var isFailed = rec.mode === "live" && !rec.mocked && !rec.tx_hash;
+    var modeTag = isLive ? "mode-live" : (isFailed ? "mode-fail" : "mode-mock");
+    var modeText = isLive ? "live" : (isFailed ? "failed" : "mocked");
+    meta.appendChild(el("span", "tag " + modeTag, modeText));
+    meta.appendChild(el("span", "dimtxt", "conf " + (isFinite(Number(rec.confidence)) ? Number(rec.confidence).toFixed(2) : "—")));
+    meta.appendChild(el("span", "dimtxt", money(rec.amount_usd) + (isLive ? "" : " quoted")));
+    if(rec.spend_tier) meta.appendChild(el("span", "dimtxt", String(rec.spend_tier)));
+
+    var txWrap = el("span", "r-tx");
+    if(rec.tx_hash){
+      var link = document.createElement("a");
+      link.href = EXPLORER + encodeURIComponent(String(rec.tx_hash));
+      link.target = "_blank";
+      link.rel = "noopener noreferrer";
+      link.textContent = shortHash(rec.tx_hash);
+      link.title = String(rec.tx_hash);
+      txWrap.appendChild(link);
+    } else {
+      txWrap.appendChild(el("span", "none", "no tx"));
+    }
+    meta.appendChild(txWrap);
+    card.appendChild(meta);
+
+    return card;
+  }
+
+  function renderEmpty(){
+    clear(rowsEl);
+    var box = el("div", "empty");
+    box.appendChild(el("h3", null, "No settlements yet — run one on /telegraph/assess"));
+    box.appendChild(el("p", null, "The ledger fills the moment an assessment settles. One receipt per assessment, appended, never rewritten."));
+    var link = document.createElement("a");
+    link.className = "cta";
+    link.href = "/telegraph/assess";
+    link.textContent = "Run your first assessment";
+    box.appendChild(link);
+    rowsEl.appendChild(box);
+  }
+
+  function renderError(message){
+    clear(rowsEl);
+    var box = el("div", "error-box");
+    box.appendChild(el("p", null, message));
+    var retry = el("button", "retry", "Retry");
+    retry.type = "button";
+    retry.addEventListener("click", load);
+    box.appendChild(retry);
+    rowsEl.appendChild(box);
+    countEl.textContent = "";
+  }
+
+  function load(){
+    clear(rowsEl);
+    var loading = el("div", "loading");
+    loading.appendChild(el("span", "spinner"));
+    loading.appendChild(el("span", null, "reading the ledger…"));
+    rowsEl.appendChild(loading);
+
+    fetch("/telegraph/stats", { cache: "no-store" })
+      .then(function(r){
+        if(!r.ok) throw new Error("Server returned HTTP " + r.status);
+        return r.json();
+      })
+      .then(function(stats){
+        renderKpis(stats || {});
+        stampEl.textContent = String(stats.generated_at || "");
+        var records = Array.isArray(stats.settlements) ? stats.settlements : [];
+        clear(rowsEl);
+        if(!records.length){
+          countEl.textContent = "";
+          renderEmpty();
+          return;
+        }
+        countEl.textContent = records.length + (records.length === 1 ? " receipt" : " receipts");
+        var list = el("div", "rows");
+        records.forEach(function(rec){ list.appendChild(row(rec || {})); });
+        rowsEl.appendChild(list);
+      })
+      .catch(function(err){
+        renderError("Could not read the ledger: " + String((err && err.message) || err));
+      });
+  }
+
+  load();
+})();
+</script>
+</body>
+</html>

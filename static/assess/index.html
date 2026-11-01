@@ -1,0 +1,666 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<meta name="color-scheme" content="dark"/>
+<meta name="theme-color" content="#0b0f17"/>
+<title>Outbreak Sentinel — Assess</title>
+<style>
+  :root{
+    --bg:#0b0f17;
+    --panel:#111827;
+    --panel-2:#0f1626;
+    --border:#1f2937;
+    --text:#e5e7eb;
+    --dim:#8b98ac;
+    --dim-2:#5f6b7f;
+    --cyan:#38bdf8;
+    --amber:#fbbf24;
+    --ok:#4ade80;
+    --hi:#fb923c;
+    --crit:#f87171;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    background:
+      radial-gradient(900px 480px at 12% -12%, #16233d 0%, rgba(22,35,61,0) 62%),
+      radial-gradient(800px 420px at 112% -4%, #131c30 0%, rgba(19,28,48,0) 58%),
+      var(--bg);
+    color:var(--text);
+    font-family:system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    font-size:14px;
+    line-height:1.5;
+    min-height:100vh;
+    padding:16px 14px 40px;
+    -webkit-text-size-adjust:100%;
+  }
+  h1,h2,h3{margin:0;font-weight:600;letter-spacing:.01em;}
+  a{color:var(--cyan);text-decoration:none;}
+  a:hover{text-decoration:underline;}
+  button{font:inherit;color:inherit;background:none;border:0;cursor:pointer;}
+  :focus-visible{outline:2px solid var(--cyan);outline-offset:2px;border-radius:8px;}
+  [hidden]{display:none!important;}
+  .mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;}
+  .shell{max-width:720px;margin:0 auto;}
+
+  /* ---------- brand row ---------- */
+  .brand-row{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;}
+  .brand{display:inline-flex;align-items:center;gap:9px;color:var(--text);font-weight:600;font-size:15px;letter-spacing:.01em;}
+  .brand:hover{text-decoration:none;color:var(--text);}
+  .dot{width:9px;height:9px;border-radius:50%;background:var(--cyan);box-shadow:0 0 10px var(--cyan);display:inline-block;animation:dotGlow 2.6s ease-in-out infinite;}
+  @keyframes dotGlow{0%,100%{box-shadow:0 0 10px var(--cyan);}50%{box-shadow:0 0 18px rgba(56,189,248,.65);}}
+  .brand svg{display:block;color:var(--cyan);}
+  .nav{display:flex;gap:8px;flex-wrap:wrap;}
+  .nav a{
+    font-size:11.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--dim);
+    border:1px solid var(--border);border-radius:999px;padding:5px 11px;background:var(--panel);
+  }
+  .nav a:hover{color:var(--text);border-color:rgba(56,189,248,.45);text-decoration:none;}
+  .tagline{color:var(--dim);font-size:13.5px;margin:12px 0 16px;max-width:46ch;}
+  .tagline b{color:var(--text);font-weight:600;}
+
+  /* ---------- panels ---------- */
+  .panel{border:1px solid var(--border);border-radius:12px;background:var(--panel);padding:15px;margin-bottom:14px;}
+  .panel h2{font-size:11.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--dim);}
+  .panel .sub{color:var(--dim-2);font-size:12px;margin:6px 0 0;}
+
+  label{display:block;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--dim);margin-bottom:6px;}
+  input[type=text],select{
+    width:100%;font-size:16px;line-height:1.4;
+    background:var(--panel-2);color:var(--text);
+    border:1px solid var(--border);border-radius:9px;padding:11px 12px;
+    transition:border-color .15s ease, background .15s ease;
+    appearance:none;-webkit-appearance:none;
+  }
+  select{background-image:none;}
+  input[type=text]::placeholder{color:var(--dim-2);}
+  input[type=text]:focus,select:focus{outline:none;border-color:rgba(56,189,248,.6);background:#0c1322;}
+  .field{margin-bottom:12px;}
+  .row2{display:grid;grid-template-columns:1fr;gap:12px;}
+
+  /* ---------- spend tiers ---------- */
+  .tiers{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin:2px 0 6px;padding:0;border:0;}
+  .tier{
+    border:1px solid var(--border);background:var(--panel-2);border-radius:9px;
+    padding:9px 6px;text-align:center;color:var(--dim);transition:.15s ease;
+  }
+  .tier .t-name{display:block;font-size:12.5px;font-weight:600;color:var(--text);letter-spacing:.01em;}
+  .tier .t-price{display:block;font-size:11px;color:var(--dim-2);margin-top:1px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;}
+  .tier:hover{border-color:#2b3a53;}
+  .tier[aria-checked=true]{background:rgba(56,189,248,.14);border-color:var(--cyan);}
+  .tier[aria-checked=true] .t-name{color:var(--cyan);}
+  .tier[aria-checked=true] .t-price{color:var(--text);}
+  .tier-note{font-size:11px;color:var(--dim-2);margin:6px 0 14px;}
+
+  /* ---------- samples ---------- */
+  .samples{display:flex;flex-wrap:wrap;gap:7px;margin:14px 0 4px;}
+  .sample{
+    font-size:12px;padding:6px 11px;border-radius:999px;
+    border:1px dashed rgba(56,189,248,.4);background:rgba(56,189,248,.06);color:var(--cyan);
+  }
+  .sample:hover{background:rgba(56,189,248,.14);border-style:solid;}
+  .samples-lab{font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--dim-2);margin-top:12px;}
+
+  .submit{
+    display:flex;align-items:center;justify-content:center;gap:9px;width:100%;
+    margin-top:16px;padding:13px 16px;border-radius:10px;
+    background:var(--cyan);color:#04121e;font-weight:700;font-size:15px;letter-spacing:.01em;
+    transition:filter .15s ease, opacity .15s ease;
+  }
+  .submit:hover{filter:brightness(1.08);}
+  .submit[disabled]{opacity:.55;cursor:progress;}
+  .trust{font-size:11.5px;color:var(--dim-2);margin:10px 0 0;text-align:center;}
+  .trust b{color:var(--amber);font-weight:600;}
+
+  /* ---------- output states ---------- */
+  #out{margin-bottom:14px;}
+  .skel{padding:2px 0;}
+  .sk{display:block;border-radius:6px;background:linear-gradient(90deg,#162131 25%,#1d2a3d 37%,#162131 63%);background-size:400% 100%;animation:shimmer 1.4s ease infinite;height:10px;margin-bottom:10px;}
+  @keyframes shimmer{0%{background-position:100% 0;}100%{background-position:0 0;}}
+  .progress{display:flex;align-items:center;gap:9px;font-size:12px;color:var(--dim);margin-top:4px;}
+  .spinner{width:13px;height:13px;border-radius:50%;border:2px solid rgba(56,189,248,.25);border-top-color:var(--cyan);animation:spin .9s linear infinite;flex:none;}
+  @keyframes spin{to{transform:rotate(360deg);}}
+
+  .error-box{border:1px solid rgba(248,113,113,.45);background:rgba(248,113,113,.07);border-radius:12px;padding:14px;}
+  .error-box h3{font-size:13px;color:var(--crit);margin-bottom:5px;}
+  .error-box p{margin:0;font-size:12.5px;color:var(--dim);word-break:break-word;}
+  .retry{
+    margin-top:12px;font-size:12.5px;padding:8px 16px;border-radius:999px;
+    border:1px solid rgba(56,189,248,.5);background:rgba(56,189,248,.1);color:var(--cyan);font-weight:600;
+  }
+  .retry:hover{background:rgba(56,189,248,.18);}
+
+  /* ---------- verdict card ---------- */
+  .verdict{border:1px solid var(--border);border-left-width:4px;border-radius:12px;background:var(--panel);padding:15px;}
+  .verdict.lv-low{border-left-color:var(--ok);}
+  .verdict.lv-moderate{border-left-color:var(--amber);}
+  .verdict.lv-high{border-left-color:var(--hi);}
+  .verdict.lv-critical{border-left-color:var(--crit);}
+  .v-top{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:10px;}
+  .sev{
+    font-size:10.5px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;
+    padding:4px 10px;border-radius:999px;border:1px solid currentColor;
+  }
+  .sev.lv-low{color:var(--ok);background:rgba(74,222,128,.08);}
+  .sev.lv-moderate{color:var(--amber);background:rgba(251,191,36,.08);}
+  .sev.lv-high{color:var(--hi);background:rgba(251,146,60,.08);}
+  .sev.lv-critical{color:var(--crit);background:rgba(248,113,113,.08);}
+  .proven{
+    display:inline-flex;align-items:center;gap:5px;
+    font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;
+    color:var(--ok);border:1px solid rgba(74,222,128,.45);background:rgba(74,222,128,.08);
+    padding:4px 9px;border-radius:999px;
+  }
+  .proven svg{display:block;}
+  .v-meta{margin-left:auto;font-size:11px;color:var(--dim-2);font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;}
+  .sentence{font-size:17px;line-height:1.45;color:var(--text);margin:0 0 4px;font-weight:500;}
+  .asked{font-size:11.5px;color:var(--amber);margin:8px 0 0;}
+
+  .drivers{margin:14px 0 0;padding:0;list-style:none;}
+  .drivers li{
+    display:flex;gap:8px;font-size:12.5px;color:var(--dim);
+    padding:6px 0;border-top:1px solid rgba(31,41,55,.75);
+  }
+  .drivers li:first-child{border-top:0;}
+  .drivers .num{color:var(--cyan);font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11px;flex:none;padding-top:2px;}
+
+  .receipt{margin-top:14px;border:1px solid var(--border);border-radius:10px;background:var(--panel-2);padding:12px;}
+  .receipt h3{font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--dim);margin-bottom:9px;}
+  .r-row{display:flex;justify-content:space-between;gap:12px;font-size:12px;padding:4px 0;flex-wrap:wrap;}
+  .r-k{color:var(--dim-2);letter-spacing:.04em;}
+  .r-v{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;color:var(--text);text-align:right;word-break:break-all;}
+  .r-v a{color:var(--cyan);}
+  .r-note{font-size:11px;color:var(--amber);margin:8px 0 0;word-break:break-word;}
+  .ledger-link{display:inline-block;margin-top:12px;font-size:12px;color:var(--cyan);}
+
+  /* ---------- thresholds ---------- */
+  .bands{display:grid;gap:6px;margin-top:12px;}
+  .band{display:flex;justify-content:space-between;gap:10px;font-size:12px;color:var(--dim);padding:6px 0;border-top:1px solid rgba(31,41,55,.75);}
+  .band:first-child{border-top:0;}
+  .band .k{color:var(--text);}
+  .band .v{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;color:var(--dim-2);text-align:right;white-space:nowrap;}
+  .grading{margin-top:14px;padding-top:12px;border-top:1px solid var(--border);}
+  .grade-row{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;}
+  .grade{
+    font-size:10.5px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;
+    padding:4px 9px;border-radius:999px;border:1px solid currentColor;
+  }
+  .grade.lv-low{color:var(--ok);}
+  .grade.lv-moderate{color:var(--amber);}
+  .grade.lv-high{color:var(--hi);}
+  .grade.lv-critical{color:var(--crit);}
+
+  footer{margin-top:8px;color:var(--dim-2);font-size:11px;line-height:1.6;}
+  footer p{margin:0 0 4px;}
+
+  @media (min-width:640px){
+    body{padding:22px 20px 48px;}
+    .row2{grid-template-columns:1.35fr 1fr;}
+    .panel{padding:18px;}
+  }
+  @media (prefers-reduced-motion:reduce){
+    *,*::before,*::after{animation:none!important;transition:none!important;}
+    .sk{background:#162131;}
+  }
+</style>
+</head>
+<body>
+<div class="shell">
+
+  <header class="brand-row">
+    <a class="brand" href="/telegraph/dashboard">
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M12 2 4 5.5v6c0 5 3.4 8.9 8 10.5 4.6-1.6 8-5.5 8-10.5v-6L12 2z"/>
+        <path d="M7.5 12.5h2.2l1.4-3 1.8 5 1.3-2h2.3"/>
+      </svg>
+      <span>Outbreak Sentinel</span>
+    </a>
+    <nav class="nav">
+      <a href="/telegraph/ledger">Public ledger</a>
+      <a href="/telegraph/dashboard">Console</a>
+    </nav>
+  </header>
+
+  <p class="tagline"><b>One assessment. Real sources. A receipt nobody can change.</b></p>
+
+  <main>
+    <!-- ---------- input card ---------- -->
+    <section class="panel" aria-labelledby="formTitle">
+      <h2 id="formTitle">Ask one question</h2>
+      <div class="field" style="margin-top:12px">
+        <label for="q">Your question</label>
+        <input id="q" type="text" autocomplete="off" placeholder="e.g. Is dengue exploding in Ludhiana right now?"/>
+      </div>
+
+      <div class="row2">
+        <div class="field">
+          <label for="city">City</label>
+          <input id="city" type="text" autocomplete="off" list="cityList" placeholder="e.g. Ludhiana"/>
+          <datalist id="cityList"></datalist>
+        </div>
+        <div class="field">
+          <label for="disease">Disease (optional)</label>
+          <select id="disease" aria-label="Disease">
+            <option value="dengue">dengue</option>
+            <option value="malaria">malaria</option>
+            <option value="cholera">cholera</option>
+            <option value="typhoid">typhoid</option>
+            <option value="measles">measles</option>
+            <option value="pertussis">pertussis</option>
+            <option value="mpox">mpox</option>
+          </select>
+        </div>
+      </div>
+
+      <fieldset class="tiers" role="radiogroup" aria-label="Spend tier">
+        <button type="button" class="tier" role="radio" aria-checked="true" data-amount="10000">
+          <span class="t-name">Essentials</span><span class="t-price">$0.01</span>
+        </button>
+        <button type="button" class="tier" role="radio" aria-checked="false" data-amount="20000">
+          <span class="t-name">Standard</span><span class="t-price">$0.02</span>
+        </button>
+        <button type="button" class="tier" role="radio" aria-checked="false" data-amount="50000">
+          <span class="t-name">Thorough</span><span class="t-price">$0.05</span>
+        </button>
+      </fieldset>
+      <p class="tier-note">The tier is the spend ceiling sent with the request. The price actually paid is whatever the miner's live 402 challenge quotes — usually $0.01.</p>
+
+      <p class="samples-lab">Try one</p>
+      <div class="samples">
+        <button type="button" class="sample" data-q="Is malaria surging in Ludhiana right now?" data-city="Ludhiana" data-disease="malaria">Malaria in Ludhiana</button>
+        <button type="button" class="sample" data-q="Is dengue exploding in Karachi right now?" data-city="Karachi" data-disease="dengue">Dengue in Karachi</button>
+        <button type="button" class="sample" data-q="Is measles spreading in South Carolina right now?" data-city="South Carolina" data-disease="measles">Measles in South Carolina</button>
+      </div>
+
+      <button type="button" class="submit" id="go">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h13M13 6l6 6-6 6"/></svg>
+        Run assessment
+      </button>
+      <p class="trust"><b>Paid, not guessed.</b> Every assessment pays an independent miner — not a cached answer.</p>
+    </section>
+
+    <!-- ---------- output ---------- -->
+    <section id="out" aria-live="polite" aria-busy="false"></section>
+
+    <!-- ---------- published thresholds ---------- -->
+    <section class="panel" aria-labelledby="thrTitle">
+      <h2 id="thrTitle">Our published thresholds</h2>
+      <p class="sub">Same evidence, same verdict, every time.</p>
+
+      <div class="bands">
+        <div class="band"><span class="k">News uptick</span><span class="v">&ge;10 articles/24h &rarr; +40</span></div>
+        <div class="band"><span class="k"></span><span class="v">5&ndash;9 articles/24h &rarr; +20</span></div>
+        <div class="band"><span class="k">Heavy rain forecast</span><span class="v">&ge;50 mm &rarr; +20</span></div>
+        <div class="band"><span class="k">Heat</span><span class="v">&ge;35 &deg;C &rarr; +15</span></div>
+        <div class="band"><span class="k">Panic sentiment</span><span class="v">&ge;0.60 &rarr; +25</span></div>
+        <div class="band"><span class="k"></span><span class="v">0.30&ndash;0.59 &rarr; +10</span></div>
+      </div>
+
+      <div class="grading">
+        <p class="sub" style="margin-top:0">Total score &rarr; level</p>
+        <div class="grade-row">
+          <span class="grade lv-critical">&ge;70 CRITICAL</span>
+          <span class="grade lv-high">50&ndash;69 HIGH</span>
+          <span class="grade lv-moderate">30&ndash;49 MODERATE</span>
+          <span class="grade lv-low">&lt;30 LOW</span>
+        </div>
+        <p class="sub">Confidence = 0.4 + score/100, capped at 0.95. These bands are the rule-based fallback; the card states which engine ran.</p>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <p>Surveillance, not diagnosis. This is early-warning intelligence for public-health decisions — never personal medical advice.</p>
+    <p>Settlement runs on Base Sepolia (testnet). No mainnet value moves.</p>
+  </footer>
+</div>
+
+<script>
+(function(){
+  "use strict";
+
+  var EXPLORER = "https://sepolia.basescan.org/tx/";
+  var TIER_AMOUNT = 10000;
+  var REQ_TIMEOUT_MS = 180000;
+
+  var qEl = document.getElementById("q");
+  var cityEl = document.getElementById("city");
+  var diseaseEl = document.getElementById("disease");
+  var outEl = document.getElementById("out");
+  var goEl = document.getElementById("go");
+  var tierEls = Array.prototype.slice.call(document.querySelectorAll(".tier"));
+  var progressTimer = null;
+  var lastPayload = null;
+
+  function el(tag, cls, text){
+    var n = document.createElement(tag);
+    if(cls) n.className = cls;
+    if(text != null) n.textContent = String(text);
+    return n;
+  }
+  function clear(node){ while(node && node.firstChild) node.removeChild(node.firstChild); }
+  function levelClass(level){
+    var l = String(level || "").toUpperCase();
+    if(l === "CRITICAL") return "lv-critical";
+    if(l === "HIGH") return "lv-high";
+    if(l === "MODERATE") return "lv-moderate";
+    return "lv-low";
+  }
+  function money(usd){
+    var n = Number(usd);
+    if(!isFinite(n)) return "—";
+    return "$" + n.toFixed(n < 0.1 ? 3 : 2).replace(/0$/, "");
+  }
+  function firstSentence(text){
+    var s = String(text || "").trim();
+    if(!s) return "";
+    var m = s.match(/^[\s\S]*?[.!?](?=\s|$)/);
+    return m ? m[0].trim() : s;
+  }
+  function shortHash(tx){
+    var s = String(tx || "");
+    return s.length > 16 ? s.slice(0, 10) + "…" + s.slice(-6) : s;
+  }
+
+  /* ---------- tiers ---------- */
+  function selectTier(amount){
+    TIER_AMOUNT = Number(amount) || 10000;
+    tierEls.forEach(function(btn){
+      btn.setAttribute("aria-checked", String(Number(btn.getAttribute("data-amount")) === TIER_AMOUNT));
+    });
+  }
+  tierEls.forEach(function(btn){
+    btn.addEventListener("click", function(){ selectTier(btn.getAttribute("data-amount")); });
+  });
+  selectTier(10000);
+
+  /* ---------- sample chips ---------- */
+  Array.prototype.slice.call(document.querySelectorAll(".sample")).forEach(function(btn){
+    btn.addEventListener("click", function(){
+      qEl.value = btn.getAttribute("data-q") || "";
+      cityEl.value = btn.getAttribute("data-city") || "";
+      var d = btn.getAttribute("data-disease");
+      if(d) diseaseEl.value = d;
+      qEl.focus();
+    });
+  });
+
+  /* ---------- state renders ---------- */
+  function showLoading(){
+    outEl.setAttribute("aria-busy", "true");
+    clear(outEl);
+    var box = el("div", "panel");
+
+    var skel = el("div", "skel");
+    skel.setAttribute("aria-hidden", "true");
+    skel.appendChild(el("span", "sk")).setAttribute("style", "width:46%;height:14px");
+    skel.appendChild(el("span", "sk")).setAttribute("style", "width:88%;height:11px");
+    skel.appendChild(el("span", "sk")).setAttribute("style", "width:72%;height:11px");
+    skel.appendChild(el("span", "sk")).setAttribute("style", "width:60%;height:11px");
+    box.appendChild(skel);
+
+    var prog = el("div", "progress");
+    prog.appendChild(el("span", "spinner"));
+    var msg = el("span", null, "fusing 60+ signals, settling payment…");
+    prog.appendChild(msg);
+    box.appendChild(prog);
+
+    outEl.appendChild(box);
+
+    var steps = [
+      "collecting news + weather + social signals…",
+      "fusing 60+ signals on the LLM path…",
+      "settling payment on Base Sepolia…",
+      "waiting for the miner's receipt…"
+    ];
+    var i = 0;
+    if(progressTimer) clearInterval(progressTimer);
+    progressTimer = setInterval(function(){
+      i = (i + 1) % steps.length;
+      msg.textContent = steps[i];
+    }, 9000);
+  }
+
+  function stopLoading(){
+    if(progressTimer){ clearInterval(progressTimer); progressTimer = null; }
+    outEl.setAttribute("aria-busy", "false");
+  }
+
+  function showError(message){
+    stopLoading();
+    clear(outEl);
+    var box = el("div", "error-box");
+    box.appendChild(el("h3", null, "Assessment did not complete"));
+    box.appendChild(el("p", null, message));
+    var retry = el("button", "retry", "Retry");
+    retry.type = "button";
+    retry.addEventListener("click", function(){
+      if(lastPayload) run(lastPayload); else run(buildPayload());
+    });
+    box.appendChild(retry);
+    outEl.appendChild(box);
+  }
+
+  /* ---------- verdict ---------- */
+  function renderResult(data, asked){
+    stopLoading();
+    clear(outEl);
+
+    var card = (data && data.risk_card) || {};
+    if(card.error){
+      showError(String(card.error));
+      return;
+    }
+
+    var settlement = (data && data.settlement) || {};
+    var level = String(card.risk_level || "LOW").toUpperCase();
+    var tx = data.tx_hash || settlement.tx_hash || null;
+    var live = data.live === true && settlement.mocked === false && !!tx;
+    var sentence = firstSentence(card.summary);
+    if(!sentence){
+      sentence = String(card.city || asked.city || "This area") + " shows " + level +
+        " risk for " + String(card.disease || asked.disease || "the monitored disease") + ".";
+    }
+
+    var wrap = el("div", "verdict " + levelClass(level));
+
+    var top = el("div", "v-top");
+    top.appendChild(el("span", "sev " + levelClass(level), level));
+    if(live){
+      var chip = el("span", "proven");
+      var svgNS = "http://www.w3.org/2000/svg";
+      var tick = document.createElementNS(svgNS, "svg");
+      tick.setAttribute("width", "10"); tick.setAttribute("height", "10");
+      tick.setAttribute("viewBox", "0 0 24 24"); tick.setAttribute("aria-hidden", "true");
+      tick.innerHTML = '<path d="M20 6 9 17l-5-5" fill="none" stroke="currentColor" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"/>';
+      chip.appendChild(tick);
+      chip.appendChild(document.createTextNode("Live settlement proven"));
+      top.appendChild(chip);
+    }
+    if(isFinite(Number(card.confidence))){
+      top.appendChild(el("span", "v-meta", "confidence " + Number(card.confidence).toFixed(2)));
+    }
+    wrap.appendChild(top);
+
+    wrap.appendChild(el("p", "sentence", sentence));
+
+    var returnedCity = String(card.city || "");
+    if(returnedCity && asked.city && returnedCity.toLowerCase() !== String(asked.city).toLowerCase()){
+      wrap.appendChild(el("p", "asked", "Asked about " + asked.city + " — the engine returned " + returnedCity + "."));
+    }
+
+    var drivers = Array.isArray(card.drivers) ? card.drivers.slice(0, 3) : [];
+    if(drivers.length){
+      var ul = el("ul", "drivers");
+      drivers.forEach(function(d, idx){
+        var li = el("li");
+        li.appendChild(el("span", "num", String(idx + 1).padStart(2, "0")));
+        li.appendChild(el("span", null, String(d)));
+        ul.appendChild(li);
+      });
+      wrap.appendChild(ul);
+    }
+
+    var sources = Array.isArray(card.sources) ? card.sources.length : 0;
+
+    var receipt = el("div", "receipt");
+    receipt.appendChild(el("h3", null, "Receipt"));
+
+    var costRow = el("div", "r-row");
+    costRow.appendChild(el("span", "r-k", live ? "Cost paid" : "Quoted price"));
+    costRow.appendChild(el("span", "r-v", money(settlement.amount != null ? settlement.amount : data.amount)));
+    receipt.appendChild(costRow);
+
+    var modeRow = el("div", "r-row");
+    modeRow.appendChild(el("span", "r-k", "Mode"));
+    var modeText = String(data.mode || "—");
+    if(settlement.mocked) modeText += " · mocked";
+    else if(tx) modeText += " · on-chain";
+    else modeText += " · not settled";
+    modeRow.appendChild(el("span", "r-v", modeText));
+    receipt.appendChild(modeRow);
+
+    var minerRow = el("div", "r-row");
+    minerRow.appendChild(el("span", "r-k", "Miner"));
+    minerRow.appendChild(el("span", "r-v", String(data.miner_name || data.miner || settlement.miner_name || "—")));
+    receipt.appendChild(minerRow);
+
+    var srcRow = el("div", "r-row");
+    srcRow.appendChild(el("span", "r-k", "Sources"));
+    srcRow.appendChild(el("span", "r-v", sources ? (sources + " cited item" + (sources === 1 ? "" : "s")) : "none returned"));
+    receipt.appendChild(srcRow);
+
+    var netRow = el("div", "r-row");
+    netRow.appendChild(el("span", "r-k", "Network"));
+    netRow.appendChild(el("span", "r-v", String(data.network_label || settlement.network_label || "Base Sepolia")));
+    receipt.appendChild(netRow);
+
+    if(tx){
+      var txRow = el("div", "r-row");
+      txRow.appendChild(el("span", "r-k", "Transaction"));
+      var val = el("span", "r-v");
+      var link = document.createElement("a");
+      link.href = EXPLORER + encodeURIComponent(String(tx));
+      link.target = "_blank";
+      link.rel = "noopener noreferrer";
+      link.textContent = String(tx);
+      link.title = "Open the full transaction on Base Sepolia explorer";
+      val.appendChild(link);
+      txRow.appendChild(val);
+      receipt.appendChild(txRow);
+    }
+
+    if(data.settlement_error){
+      receipt.appendChild(el("p", "r-note", "Settlement note: " + String(data.settlement_error)));
+    }
+
+    wrap.appendChild(receipt);
+
+    var led = document.createElement("a");
+    led.className = "ledger-link";
+    led.href = "/telegraph/ledger";
+    led.textContent = "See every receipt in the public ledger →";
+    wrap.appendChild(led);
+
+    outEl.appendChild(wrap);
+  }
+
+  /* ---------- request ---------- */
+  function buildPayload(){
+    var payload = {
+      query: qEl.value.trim() || "Assess outbreak risk",
+      disease: diseaseEl.value || "dengue",
+      amount_uusdc: TIER_AMOUNT
+    };
+    var city = cityEl.value.trim();
+    if(city) payload.city = city;
+    return payload;
+  }
+
+  function run(payload){
+    lastPayload = payload;
+    showLoading();
+    goEl.disabled = true;
+
+    var ctl = null;
+    var timer = null;
+    if(window.AbortController){
+      ctl = new AbortController();
+      timer = setTimeout(function(){ try{ ctl.abort(); }catch(e){} }, REQ_TIMEOUT_MS);
+    }
+
+    fetch("/telegraph/risk", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+      cache: "no-store",
+      signal: ctl ? ctl.signal : undefined
+    })
+      .then(function(res){
+        if(res.ok) return res.json();
+        return res.text().then(function(t){
+          var detail = t ? " — " + String(t).slice(0, 160) : "";
+          throw new Error("Server returned HTTP " + res.status + detail);
+        });
+      })
+      .then(function(data){
+        if(timer) clearTimeout(timer);
+        goEl.disabled = false;
+        renderResult(data || {}, { city: payload.city || "", disease: payload.disease });
+      })
+      .catch(function(err){
+        if(timer) clearTimeout(timer);
+        goEl.disabled = false;
+        var msg;
+        if(err && err.name === "AbortError"){
+          msg = "The assessment timed out after 180 seconds. The miner may still be settling — check the public ledger before re-running.";
+        } else if(err && err.message){
+          msg = String(err.message);
+        } else {
+          msg = "Network unreachable. The server may be offline.";
+        }
+        showError(msg);
+      });
+  }
+
+  goEl.addEventListener("click", function(){ run(buildPayload()); });
+  qEl.addEventListener("keydown", function(e){
+    if(e.key === "Enter"){ e.preventDefault(); run(buildPayload()); }
+  });
+
+  /* ---------- optional lists (degrade silently) ---------- */
+  fetch("/cities", { cache: "no-store" })
+    .then(function(r){ return r.ok ? r.json() : null; })
+    .then(function(d){
+      var list = document.getElementById("cityList");
+      var names = (d && Array.isArray(d.cities)) ? d.cities : [];
+      names.forEach(function(name){
+        var opt = document.createElement("option");
+        opt.value = String(name);
+        list.appendChild(opt);
+      });
+    })
+    .catch(function(){});
+
+  fetch("/diseases", { cache: "no-store" })
+    .then(function(r){ return r.ok ? r.json() : null; })
+    .then(function(d){
+      var names = (d && Array.isArray(d.diseases)) ? d.diseases : [];
+      if(!names.length) return;
+      var current = diseaseEl.value;
+      clear(diseaseEl);
+      names.forEach(function(name){
+        var opt = document.createElement("option");
+        opt.value = String(name);
+        opt.textContent = String(name);
+        diseaseEl.appendChild(opt);
+      });
+      diseaseEl.value = names.indexOf(current) >= 0 ? current : String(names[0]);
+    })
+    .catch(function(){});
+})();
+</script>
+</body>
+</html>
