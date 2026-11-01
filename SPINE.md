@@ -790,3 +790,105 @@ assertion needed changing.
    `state/hackathon-state.md` were not touched here (Soldier-H's lane).
 5. Settlement logic and the receipt ledger are untouched; `/telegraph/risk` inherits `region` through
    `_attach_card_extras` (its `risk_card` is `dict(cards[0])`, not the pydantic model).
+
+---
+
+## 📊 CHECKPOINT 2026-11-01 — second consumer surface (Soldier-J)
+
+### Requirement
+Build the FIRST consumer-facing surface (Scam-Shield pattern, harvested in
+`docs/HARVEST-S1-winners.md` A1–A6): a self-serve assessment page and a public ledger, phone-first,
+same design tokens, zero CDN. Console (`/telegraph/dashboard`) stays the console.
+
+### Route table — additive only (existing routes untouched)
+| Path | Serves |
+|---|---|
+| `GET /telegraph/assess` | `static/assess/index.html` — self-serve assessment (A1,A2,A3,A5) |
+| `GET /telegraph/ledger` | `static/ledger/index.html` — public settlement ledger (A4) |
+| `GET /telegraph/stats` | JSON aggregate from `state/settlements.jsonl` + wallet balance (A6) |
+
+### What shipped
+- **`telegraph/settlements.py`** (new) — append-only JSONL ledger at `state/settlements.jsonl`:
+  `record()` / `load()` / `is_settled()` / `aggregate()`. One row per assessment, written at the end
+  of `POST /telegraph/risk` inside a try/except, so a disk failure is reported in `settlement_error`
+  and can never 500 the endpoint. Same doctrine as `receipts.py`: append, never rewrite, skip
+  unparseable lines.
+- **`POST /telegraph/risk`** — gains `amount_uusdc: Optional[int]` on the request model,
+  `SPEND_TIERS = {10000: essentials, 20000: standard, 50000: thorough}`, a `_first_sentence()`
+  verdict helper, and three additive response keys (`spend_tier`, `amount_uusdc_requested`, `ledger`).
+  Every existing key is unchanged.
+- **`static/assess/index.html`** — one text input + city (datalist from `/cities`) + disease select
+  (from `/diseases`), three sample chips (malaria Ludhiana / dengue Karachi / measles South
+  Carolina), segmented Essentials $0.01 / Standard $0.02 / Thorough $0.05 (default Essentials).
+  Verdict card = first sentence of `risk_card.summary` + severity chip + top-3 drivers + source
+  count + receipt (cost, mode, miner, network, full tx as `sepolia.basescan.org/tx/<hash>`) +
+  `LIVE SETTLEMENT PROVEN` only when `live === true && mocked === false && tx`. **No composite
+  numeric score.** Loading = skeleton + phase line; error = inline panel + Retry; no `alert()`.
+  Footer publishes the real rule-based bands (news ≥10 → +40, 5–9 → +20; rain ≥50 mm → +20;
+  heat ≥35 °C → +15; sentiment ≥0.60 → +25, 0.30–0.59 → +10; ≥70 CRITICAL / 50–69 HIGH /
+  30–49 MODERATE / <30 LOW; confidence = 0.4 + score/100 capped 0.95).
+- **`static/ledger/index.html`** — KPI strip (assessments · settled · total USDC · integrity),
+  verdict distribution, one row per assessment (time PKT, city, disease, level, confidence, cost,
+  state, tx link), real empty state, and a third state tag: **live / failed / mocked** — a failed
+  live attempt is labelled `failed` and its cost `quoted`, never `mocked` and never "paid".
+- **`GET /telegraph/stats`** — `assessments / settled / total_usdc / integrity_pct / verdicts /
+  last_settlement_pkt / wallet_usdc / wallet_error / settlements[]`. Wallet = one `eth_call`
+  `balanceOf(payer)` against `TELEGRAPH_CONFIG["rpc_url"]`; a missing/mocked payer returns
+  `wallet_usdc: null` + the reason rather than a number.
+- **Console** — one dim `.live-sub` line in the existing header: `assessments: N · paid: $X.XX ·
+  wallet: $Y.YY` via a new `loadStats()`. No layout restructuring; `/risk` plumbing untouched.
+- **PWA** — both pages added to the SW `SHELL` pre-cache list; manifest `shortcuts` added
+  (Additive; `start_url`/`scope`/`icons` unchanged).
+
+### Findings worth carrying forward
+1. **`amount_uusdc` is accepted but advisory — there is no $0.02/$0.05 tier in practice.** The
+   settled price comes from the live 402 challenge (`miner floor × demand multiplier`), and
+   `telegraph/client.py::buy_intelligence(query, context)` takes no amount argument at all. The
+   tier is therefore forwarded as engine context (`spend_tier`, `amount_uusdc_requested`) and
+   recorded in the ledger; every tier currently settles at the quoted **10000 µUSDC = $0.01**.
+   The page says so in the tier note instead of implying a bigger purchase.
+2. **SW cache: brief asked for `sentinel-shell-v6`, which soldier-I had already shipped.** Setting
+   v6 again would have shipped nothing to returning clients, so `CACHE_NAME` is now
+   **`sentinel-shell-v7`**. `/telegraph/*` is already network-first in the SW fetch handler, so the
+   new pages are never served stale; pre-caching them is a warm-up only.
+3. **LIVE SETTLEMENT IS BLOCKED UPSTREAM (not by this change).** Probing the engine 3× today:
+   `POST /engine/v1/ask` returns 402 with accepts on **`eip155:11155111` (Ethereum Sepolia)**, amount
+   `10000`, asset `0xcc194e1a843B658526D0D5C431f670028582Ae17`. Our node only registers
+   `eip155:84532` (Base Sepolia) at `telegraph/client.py:151`, so x402 raises
+   `No payment requirements match registered schemes`. The engine has migrated its testnet; the
+   client has not. **One-line fix for the client's owner:** register `TELEGRAPH_CONFIG["chain_caip"]`
+   instead of the literal, and move chain id / USDC address / RPC / explorer in `telegraph/config.py`
+   to 11155111. `telegraph/client.py` settlement internals were out of scope here and were not edited.
+
+### Verified (own uvicorn 127.0.0.1:8004; port 8001 never touched)
+- `pytest tests -q` → **8 passed** (6 pre-existing + 2 new in `tests/test_surface.py`).
+- `curl` → `/telegraph/assess` **200** (28,458 B), `/telegraph/ledger` **200** (15,921 B),
+  `/telegraph/stats` **200**, `/health` **200**, `/telegraph/dashboard` **200** (93,201 B).
+- `node --check` PASS on the extracted scripts of both new pages **and** the dashboard (52,448 B);
+  `node --check dashboard/service-worker.js` PASS; `python3 -m json.tool dashboard/manifest.json` OK.
+- Static cross-check: assess 8 ids / 0 duplicates / 6 JS refs all resolve; ledger 7 ids / 0
+  duplicates / 5 refs resolve; `alert(` = 0 in both; 0 external asset refs (`src|href` to anything
+  other than the required explorer link) in all three shells.
+- **One real tier run** (`POST /telegraph/risk`, `amount_uusdc: 10000`, Karachi/dengue): HTTP 200 in
+  9.1 s, `spend_tier: essentials`, `amount_uusdc_requested: 10000`, card `HIGH` / 0.95 / 5 sources,
+  `engine: rule-based`. Settlement failed upstream as above → `live: false`, `tx_hash: null`,
+  `settlement_error: "No payment requirements match registered schemes"`. **One JSONL row landed**
+  (`state/settlements.jsonl`, committed) with `tx_hash: null`, `mode: live`, `mocked: false` — the
+  ledger renders it as `failed` / `quoted $0.01`, and `settled` stays 0. No tx hash exists to report
+  because the chain moved, not because the write path failed.
+- Server on 8004 killed afterwards.
+
+### Commits
+- `9d5272c` — `feat(surface): second consumer surface — assess + public ledger + stats` (pushed `46899bd..9d5272c`)
+- followed by `docs(spine): checkpoint soldier-J second surface`
+
+### Open / for the next owner
+- The live tx is the one unmet item from the brief, blocked at `telegraph/client.py:151` (see
+  Finding 3). Nothing in the surface layer needs to change once the client registers the network.
+- `/telegraph/stats` keeps `settlements[]` capped at the most recent 200 rows; the KPI aggregates
+  always cover the whole file.
+- The disease select has no "any" option on purpose: omitting `disease` would silently fall back to
+  the API default (`dengue`), so the page always states a disease. Default is `dengue`.
+- Sample chip "Measles in South Carolina" pre-fills city `South Carolina`, which is not one of the
+  configured cities (Columbia SC is). The verdict card includes an "asked → returned" line when the
+  engine answers for a different city, so the mismatch is visible rather than hidden.
