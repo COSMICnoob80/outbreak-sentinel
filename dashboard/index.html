@@ -163,6 +163,7 @@
   .sig .meta{font-size:11px;color:var(--dim);margin-top:5px;display:flex;gap:12px;flex-wrap:wrap;}
   .sig .meta .v{color:var(--dim-2);}
   .empty{padding:28px 15px;text-align:center;color:var(--dim-2);font-size:12.5px;}
+  .empty .btn-ghost{margin-top:10px;font-size:11.5px;padding:5px 12px;}
 
   /* ---------- risk cards ---------- */
   .controls{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:12px 15px;border-bottom:1px solid var(--border);}
@@ -201,6 +202,7 @@
   .score.lv-LOW{color:var(--dim);}
   .level{font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--dim);margin-top:4px;}
   .conf{font-size:11px;color:var(--dim-2);margin-top:3px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;}
+  .conf-baseline{font-style:italic;opacity:.78;}
 
   .detail{max-height:0;overflow:hidden;transition:max-height .28s ease;border-top:1px solid transparent;}
   .card:hover .detail,.card.pinned .detail{max-height:680px;border-top-color:var(--border);margin-top:12px;padding-top:12px;}
@@ -872,6 +874,13 @@ function miniSeries(c){
 
 /* ================= card render (prototype anatomy) ================= */
 var pinned={};
+function fallbackConfPct(){
+  if(state.mode!=="live"||!/rule/i.test(String(state.engine||"")))return null;
+  var pcts=state.cards.map(function(c){return c.conf==null?null:Math.round(c.conf*100);}).filter(function(v){return v!=null;});
+  if(!pcts.length)return null;
+  for(var i=1;i<pcts.length;i++){if(pcts[i]!==pcts[0])return null;}
+  return pcts[0];
+}
 function renderCard(c){
   var art=h("article","card lv-"+c.level+(pinned[c.id]?" pinned":""));
   art.setAttribute("data-id",c.id);
@@ -895,7 +904,17 @@ function renderCard(c){
     : "risk index derived from the risk level band + confidence (/risk does not expose a numeric score)";
   side.appendChild(sc);
   side.appendChild(h("div","level",c.level));
-  if(c.conf!=null)side.appendChild(h("div","conf","confidence "+Math.round(c.conf*100)+"%"));
+  var baselinePct=fallbackConfPct();
+  if(c.conf!=null){
+    var confPct=Math.round(c.conf*100);
+    if(baselinePct!=null&&confPct===baselinePct){
+      var baseNote=h("div","conf conf-baseline","baseline \u2014 no active signals");
+      baseNote.title="Rule-based path reports one capped confidence for every card \u2014 not a per-card measurement";
+      side.appendChild(baseNote);
+    }else{
+      side.appendChild(h("div","conf","confidence "+confPct+"%"));
+    }
+  }
   top.appendChild(side);
   art.appendChild(top);
 
@@ -1096,6 +1115,12 @@ function renderChips(){
     box.appendChild(b);
   });
 }
+function kpiSignalCount(){
+  var el=$("#mSignalsV");
+  var raw=el?String(el.textContent||"").replace(/[^0-9]/g,""):"";
+  var n=Number(raw);
+  return raw!==""&&isFinite(n)?n:state.feed.length;
+}
 function renderFeed(){
   var box=$("#feed");
   if(state.mode==="error"){
@@ -1114,7 +1139,13 @@ function renderFeed(){
   clear(box);
   $("#feedCount").textContent=list.length+" / "+state.feed.length+" items";
   if(!list.length){
-    box.innerHTML='<div class="empty">No signals in this filter window \u2014 channel is quiet over the last 24h.</div>';
+    var empty=h("div","empty",kpiSignalCount()+" signals exist \u2014 none match this filter");
+    var showAll=h("button","btn-ghost","show all");
+    showAll.type="button";
+    showAll.addEventListener("click",function(){feedF.fam="all";feedF.vert="all";renderChips();renderFeed();});
+    empty.appendChild(document.createElement("br"));
+    empty.appendChild(showAll);
+    box.appendChild(empty);
     return;
   }
   list.forEach(function(f){box.appendChild(feedItem(f));});
