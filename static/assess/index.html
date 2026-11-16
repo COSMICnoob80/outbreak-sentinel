@@ -89,6 +89,10 @@
   .tier .t-name{display:block;font-size:12.5px;font-weight:600;color:var(--text);letter-spacing:.01em;}
   .tier .t-price{display:block;font-size:11px;color:var(--dim-2);margin-top:1px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;}
   .tier:hover{border-color:#2b3a53;}
+  .tier[disabled]{opacity:.45;cursor:not-allowed;border-style:dashed;}
+  .tier[disabled]:hover{border-color:var(--border);}
+  .tier[disabled] .t-name{color:var(--dim);}
+  .tier .t-next{display:block;font-size:9.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--dim-2);margin-top:3px;}
   .tier[aria-checked=true]{background:rgba(56,189,248,.14);border-color:var(--cyan);}
   .tier[aria-checked=true] .t-name{color:var(--cyan);}
   .tier[aria-checked=true] .t-price{color:var(--text);}
@@ -258,14 +262,14 @@
         <button type="button" class="tier" role="radio" aria-checked="true" data-amount="10000">
           <span class="t-name">Essentials</span><span class="t-price">$0.01</span>
         </button>
-        <button type="button" class="tier" role="radio" aria-checked="false" data-amount="20000">
-          <span class="t-name">Standard</span><span class="t-price">$0.02</span>
+        <button type="button" class="tier" role="radio" aria-checked="false" aria-disabled="true" data-amount="20000" disabled title="Standard — available in the next build">
+          <span class="t-name">Standard</span><span class="t-price">$0.02</span><span class="t-next">next build</span>
         </button>
-        <button type="button" class="tier" role="radio" aria-checked="false" data-amount="50000">
-          <span class="t-name">Thorough</span><span class="t-price">$0.05</span>
+        <button type="button" class="tier" role="radio" aria-checked="false" aria-disabled="true" data-amount="50000" disabled title="Thorough — available in the next build">
+          <span class="t-name">Thorough</span><span class="t-price">$0.05</span><span class="t-next">next build</span>
         </button>
       </fieldset>
-      <p class="tier-note">The tier is the spend ceiling sent with the request. The price actually paid is whatever the miner's live 402 challenge quotes — usually $0.01.</p>
+      <p class="tier-note">Only Essentials is purchasable in this build — the miner's 402 challenge quotes a fixed $0.01 and the payment must match it exactly. Standard and Thorough are disabled until the engine prices them.</p>
 
       <p class="samples-lab">Try one</p>
       <div class="samples">
@@ -366,7 +370,10 @@
 
   /* ---------- tiers ---------- */
   function selectTier(amount){
-    TIER_AMOUNT = Number(amount) || 10000;
+    var next = Number(amount) || 10000;
+    var target = tierEls.filter(function(b){ return Number(b.getAttribute("data-amount")) === next; })[0];
+    if(target && target.disabled) return;
+    TIER_AMOUNT = next;
     tierEls.forEach(function(btn){
       btn.setAttribute("aria-checked", String(Number(btn.getAttribute("data-amount")) === TIER_AMOUNT));
     });

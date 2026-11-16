@@ -416,10 +416,19 @@ class TelegraphRiskRequest(BaseModel):
     amount_uusdc: Optional[int] = None
 
 
-# Spend tiers exposed on /telegraph/assess. The amount actually settled is read
-# from the live 402 challenge (miner floor x demand multiplier) — the tier is an
-# advisory ceiling forwarded to the engine, never a price we can force.
+# Spend tiers exposed on /telegraph/assess. Only Essentials is purchasable in
+# this build: the engine's 402 challenge quotes a fixed 10000 uUSDC price
+# (accepts[].amount) and the signed EIP-3009 payment must match that exact
+# amount, so a higher tier cannot be settled — the facilitator would reject it.
+# Standard/Thorough stay declared and are recorded in the ledger row, but no
+# amount is ever charged for them.
 SPEND_TIERS = {10000: "essentials", 20000: "standard", 50000: "thorough"}
+PURCHASABLE_UUSDC = {10000}
+TIER_NOTE = (
+    "Only Essentials is purchasable in this build. The miner's 402 challenge "
+    "quotes $0.01 and the x402 payment must match that amount exactly, so "
+    "Standard and Thorough are disabled until the engine prices them."
+)
 
 
 def _first_sentence(text) -> Optional[str]:
@@ -439,6 +448,9 @@ async def telegraph_risk(req: TelegraphRiskRequest):
     # payload that states what went wrong in `settlement_error`.
     settlement_error = None
     tier = SPEND_TIERS.get(req.amount_uusdc) if req.amount_uusdc else None
+    # The tier is advisory: the amount that settles is the challenge's. Anything
+    # this build cannot actually charge is flagged, never silently pretended.
+    tier_available = (req.amount_uusdc in PURCHASABLE_UUSDC) if req.amount_uusdc else None
     context = {"city": req.city, "disease": req.disease, "vertical": req.vertical}
     if req.amount_uusdc:
         context.update({"spend_tier": tier or "custom",
@@ -528,6 +540,8 @@ async def telegraph_risk(req: TelegraphRiskRequest):
             "disease": req.disease,
             "vertical": req.vertical,
             "spend_tier": tier,
+            "tier": tier,
+            "tier_available": tier_available,
             "amount_uusdc_requested": str(req.amount_uusdc) if req.amount_uusdc else None,
             "amount_uusdc": settlement_view.get("amount_uusdc"),
             "amount_usd": settlement_view.get("amount"),
@@ -551,6 +565,8 @@ async def telegraph_risk(req: TelegraphRiskRequest):
     return {
         "request": {"query": req.query, "city": req.city, "disease": req.disease, "vertical": req.vertical},
         "spend_tier": tier,
+        "tier": tier,
+        "tier_available": tier_available,
         "amount_uusdc_requested": req.amount_uusdc,
         "ledger": ledger_row,
         "mode": proof.get("mode"),
