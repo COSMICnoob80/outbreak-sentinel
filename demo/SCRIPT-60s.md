@@ -11,7 +11,7 @@ Beat sheet for the v5 Operations Console. **SAY lines are verbatim** — read th
 
 ## 0:00–0:05 — Hook (1 sentence)
 
-**[SCREEN]** Console loaded; header, `engine: llm` badge, testnet banner all visible. Cursor still.
+**[SCREEN]** Console loaded; header, `engine: deterministic+narrator` badge (or `deterministic`), testnet banner all visible. Cursor still.
 
 **SAY:** "Every outbreak prediction here cost 1 cent and is notarized on-chain — tamper-proof."
 
@@ -38,17 +38,17 @@ Hover **Buy through Telegraph**, click once. Button changes to `Settling…`.
 
 ## 0:35–0:50 — Product breadth (same console, more surface)
 
-**[SCREEN]** Back to the console. Scroll cards: `PAKISTAN` header, then `GLOBAL`. Point at the engine
-badge, a citation chip, the AI summary line, a card-foot sparkline. Toggle `SIMPLE → PRO` and hold on
+**[SCREEN]** Back to the console. Scroll cards: `PAKISTAN` header, then `OTHER CITIES`. Point at the engine
+badge, a citation chip, the AI summary line, a card-foot `rain forecast · 7d` strip. Toggle `SIMPLE → PRO` and hold on
 PRO rows (miner, micro-units, scheme, block), then toggle back.
 
-**SAY:** "Same console, grouped Pakistan and Global; the engine behind it carries ten-plus cities across seven verticals, with cited sources, AI summaries and sparklines. Flip SIMPLE to PRO for miner, micro-units, scheme and block."
+**SAY:** "Same console, grouped Pakistan and other cities; the engine behind it carries ten-plus cities across seven verticals, with cited sources, AI summaries and a rain-forecast strip. Flip SIMPLE to PRO for miner, micro-units, scheme and block."
 
 ## 0:50–0:60 — Close (ledger moat + call to action)
 
 **[SCREEN]** Stay on the PRO receipt: tx strip, block, receipt hash. Nothing else moves.
 
-**SAY:** "Every prediction gets a receipt we resolve later — confirmed or refuted. 'Trust our AI' becomes 'check our ledger' — and the burner still holds 19.97 USDC."
+**SAY:** "Every prediction gets a receipt we resolve later — confirmed or refuted. 'Trust our AI' becomes 'check our ledger' — and the burner still holds 19.95 USDC."
 
 ---
 
@@ -62,7 +62,7 @@ Then resume at 0:35. If the chip lands while you talk, go back to the 0:24 beat.
 
 ## Hard rules
 
-- Numbers only as written here: block **48,410,853**, **0x3825fa28…**, **19.97 USDC**, **~24s**, **1 cent**.
+- Numbers only as written here: block **48,410,853**, **0x3825fa28…**, **19.95 USDC**, **~24s**, **1 cent**.
 - Testnet is stated out loud once. Never imply mainnet, and never call the console a mock.
 - No accuracy percentages, no "revolutionary", no "unicorn".
 - If asked "is this real money?" — "Base Sepolia testnet USDC; the settlement rail is live, the chain is not mainnet."

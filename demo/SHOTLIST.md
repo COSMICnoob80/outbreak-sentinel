@@ -8,7 +8,7 @@ Console: `http://127.0.0.1:8001/telegraph/dashboard` — SIMPLE mode, feed loade
 S1–S10 = one continuous take, no cuts. S11–S13 = B-roll inserts. S14 = proof wall.
 
 ### S1 · 0:00–0:05 · hook
-- URL: console at top. Frame: header, `engine: llm` badge, testnet banner.
+- URL: console at top. Frame: header, `engine: deterministic+narrator` badge (or `deterministic`), testnet banner.
 - Action: none; cursor parked bottom-right.
 - Cap: `demo/media/01-hook.mp4`
 ### S2 · 0:05–0:15 · fragmented signals
@@ -37,7 +37,7 @@ S1–S10 = one continuous take, no cuts. S11–S13 = B-roll inserts. S14 = proof
 - Cap: `demo/media/07-explorer.mp4`
 ### S8 · 0:35–0:42 · breadth
 - URL: back to console.
-- Action: scroll cards past `PAKISTAN` into `GLOBAL`; hover engine badge, a citation chip, AI summary line, card-foot sparkline.
+- Action: scroll cards past `PAKISTAN` into `OTHER CITIES`; hover engine badge, a citation chip, AI summary line, card-foot `rain forecast · 7d` strip.
 - Cap: `demo/media/08-breadth.mp4`
 ### S9 · 0:42–0:50 · SIMPLE → PRO
 - URL: same page, receipt panel.
@@ -57,8 +57,8 @@ S1–S10 = one continuous take, no cuts. S11–S13 = B-roll inserts. S14 = proof
 - URL: `sepolia.basescan.org/tx/0xfbfe793e…` — block **48,407,506**; hover From/To and the USDC transfer log.
 - Cap: `demo/media/b3-tx2.mp4`
 ### S14 · Proof wall (closing card, 3–4s)
-- Stack: basescan tx page (zoomed to block) · console `LIVE SETTLEMENT PROVEN` chip · engine `llm` badge + PRO strip (miner, micro-units, scheme).
-- Caption: `0.01 USDC · Base Sepolia · 19.97 USDC left on 0x7b3654…` · Cap: `demo/media/14-proof-wall.mov`
+- Stack: basescan tx page (zoomed to block) · console `LIVE SETTLEMENT PROVEN` chip · engine `deterministic+narrator` badge + PRO strip (miner, micro-units, scheme).
+- Caption: `0.01 USDC · Base Sepolia · 19.95 USDC left on 0x7b3654…` · Cap: `demo/media/14-proof-wall.mov`
 
 ## Cut list (if long)
 Drop in order: S11, S12, S13. Never drop S5 (wait), S6 (chip), S7 (block), S14 (proof wall).
