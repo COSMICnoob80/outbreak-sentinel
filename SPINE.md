@@ -967,3 +967,14 @@ any city; (2) `_pick_sources` appended disease-only matches even when the headli
 - Console: quiet `updated Ns ago` beside the ENGINE pill. Legacy string drivers still render (dashboard, assess, telegraph page, console adapter).
 - Verified 8012: Karachi HIGH 0.85, sources both mention dengue, **no Bol robbery story**; repeat call 0.0039 s `cached: true, cache_age_s: 16`; warmed default grid 0.0028 s, 10 cards. `pytest` → 30 passed.
 - Not done: no Telegraph settlement run (no spend); no work-order file existed in the repo to delete.
+
+## 2026-11-17 — Soldier Q
+
+- Engine inverted: `/risk` + `/telegraph/risk` build cards deterministically from signals; the LLM is a narrator only.
+- Requested disease is authoritative on every card (`dengue`→`Dengue`, unknown `xyz`→`Xyz`), never invented.
+- Narrator returns only `summary`/`recommendation` + ≤1-step level change; extra keys, other city/disease, unsupplied URL or numeric score → discarded, logged by reason.
+- Sources require city+topic match AND no other disease's distinctive terms; duplicate headlines dedupe per card.
+- Multi-word disease resolves to head-noun vocabulary (`hepatitis c` → hepatitis).
+- Cards expose `risk_score` (0–100) + `evidence_count`; `engine` = `deterministic` / `deterministic+narrator`.
+- Tests 50 passed; live 8015: 10/10 Dengue cards, one Karachi card with 2 sources, `/intel/llm` ok, repeat call identical.
+- Commit `b0a516e`; cache/feed/receipts/chain 84532/config untouched.
