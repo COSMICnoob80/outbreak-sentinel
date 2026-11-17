@@ -11,13 +11,13 @@ An autonomous early-warning agent that buys ranked intelligence through Telegrap
 - URL: `http://127.0.0.1:8001/telegraph/dashboard`
 - Run: `env -u PYTHONPATH .venv/bin/python -m uvicorn app:app --host 127.0.0.1 --port 8001`
 - Walkthrough: `demo/SCRIPT-60s.md` · capture plan: `demo/SHOTLIST.md`
-- No public deployment is claimed. Railway/Docker configs exist in-repo; the verified environment is the local server above.
+- No public deployment is claimed. The Render blueprint (`render.yaml`, guide at `docs/DEPLOY-RENDER.md`) is configured in-repo; the verified environment is the local server above.
 
 ## Judging map
 
 | Likely criterion | What answers it |
 |---|---|
-| Agentic autonomy | one `POST /telegraph/risk` runs the whole loop — miner discovery via `/telegraph/intents` (134 intents), intent routing, payment, settlement, LLM fusion — no human step between query and card |
+| Agentic autonomy | one `POST /telegraph/risk` runs the whole loop — miner discovery via `/telegraph/intents` (134 intents), intent routing, payment, settlement, deterministic scoring + LLM narration — no human step between query and card |
 | x402 protocol usage | live 402 challenge → exact-scheme accept selection on `eip155:84532` → EIP-3009 authorized transfer via the facilitator; proof returns `settlement.mocked=false` and `rail="x402 (live)"` |
 | Real settlement | three verified Base Sepolia transactions at 0.01 USDC each: `0x3825fa28…` (block 48410853), `0xfbfe793e…` (block 48407506), `0xf2276f58…`; checked independently with `eth_getTransactionByHash` |
 | UI/UX | v5 console: PAKISTAN/GLOBAL grouping, per-item signal scores, always-on sparklines, cited sources, AI summaries, one SIMPLE/PRO chain toggle |
@@ -28,6 +28,6 @@ An autonomous early-warning agent that buys ranked intelligence through Telegrap
 
 - **Testnet, not mainnet.** Settlement runs on Base Sepolia (chain 84532) in testnet USDC: 0.01 USDC per ask, 19.97 USDC left on burner `0x7b3654…`. Mainnet is a config change, not a claim.
 - **Ingestion is RSS-based.** News and the "social" signal both come from Google News RSS; weather from Open-Meteo. No direct X access, so social is a proxy and is labelled as one.
-- **Backend is a local dev server.** uvicorn bound to 127.0.0.1 serves the API and console; the Docker/Railway path is configured but is not the verified deployment.
-- **LLM fusion is non-deterministic.** Card counts and levels vary per run (5–8 cards observed); `/risk` exposes no numeric score, so the console's big number is a level-band + confidence index and mini-sparklines say when they are calibration data.
+- **Backend is a local dev server.** uvicorn bound to 127.0.0.1 serves the API and console; the Render blueprint path is configured but is not the verified deployment.
+- **The grid is deterministic; only the prose is model-written.** The engine builds every card — city, disease, sources, 0–100 score, level, confidence — and labels itself `deterministic+narrator`. The LLM writes only `summary` and `recommendation` for the card it is handed, and its response is discarded if it names another city, disease or source. `/risk` exposes `risk_score` (0–100); a city with no city-named reports is capped at `LOW` with confidence ≤ 0.55.
 - **Surveillance, not diagnosis.** Cards are cited early-warning signals. No treatment guidance, no personal health data.

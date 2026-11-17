@@ -1,42 +1,66 @@
 # Deploy — Outbreak Sentinel
 
-One-command deploy targets (free tiers). App binds `0.0.0.0` and reads `$PORT`.
+One-command deploy targets (free tiers only). The app binds `0.0.0.0` and reads
+`$PORT`.
 
-## Railway
+**The documented path is the Render blueprint.** `render.yaml` at the repo root
+describes the whole service — region, free plan, build command, start command,
+health check — so Render fills in the form for you. You supply two secrets and
+nothing else.
 
-```bash
-railway init --name outbreak-sentinel
-railway variables set GROQ_API_KEY=<your-key> TELEGRAPH_SETTLEMENT_MODE=mock
-railway up
-```
+## Render (blueprint)
 
-Live URL printed by `railway up` (or `railway status`).
+1. Go to <https://dashboard.render.com> and sign in.
+2. **New** → **Blueprint**.
+3. Connect GitHub if asked, then pick this repo on branch `main`.
+4. Render shows the service it found in `render.yaml`. Paste the two secrets when
+   it prompts:
 
-## Render
+   | Secret | Value |
+   |---|---|
+   | `CMDC_API_KEY` | Command Code provider key — lets the app call the language model |
+   | `TELEGRAPH_EVM_PRIVATE_KEY` | Base Sepolia test wallet key — enables live settlement |
 
-Create a Web Service from this repo (Dockerfile auto-detected), or via CLI:
+5. Click **Apply**. The first build takes a few minutes and ends with a green
+   "live" dot.
 
-```bash
-# render.yaml not required; Render detects Dockerfile
-# Set env vars in dashboard: GROQ_API_KEY, TELEGRAPH_SETTLEMENT_MODE
-```
+Your URL is `https://outbreak-sentinel.onrender.com` (if the name is taken Render
+adds a suffix; the exact URL is at the top of the service page). Every push to
+`main` redeploys automatically.
 
-One-shot with Render CLI (if installed): `render deploy`.
+Full walkthrough including the free-plan sleep caveat:
+[`docs/DEPLOY-RENDER.md`](../docs/DEPLOY-RENDER.md).
 
-## Fly.io
+## Other targets
+
+Any container host works — the repo ships a `Dockerfile`, `Procfile` and
+`docker-compose.yml`; a web service just needs the same two env vars and
+`/health` as its check. The blueprint above is the path we actually verify;
+`fly.toml` is not shipped, so the snippet below is the only extra target.
 
 ```bash
 fly launch --no-deploy --name outbreak-sentinel
-fly secrets set GROQ_API_KEY=<your-key> TELEGRAPH_SETTLEMENT_MODE=mock
+fly secrets set CMDC_API_KEY=<your-key> TELEGRAPH_SETTLEMENT_MODE=mock
 fly deploy
 ```
 
 ## Health check
 
-All targets should hit `/health` (returns `{"status":"ok",...}`). railway.json already sets `healthcheckPath: /health`.
+Every target should hit `/health` (returns `{"status":"ok",...}`). `render.yaml`
+sets `healthCheckPath: /health`.
+
+`/intel/llm` is the provider proof: it should return `"ok": true` and
+`"provider": "commandcode"`. If it returns `"provider": null`, the `CMDC_API_KEY`
+secret is missing or mistyped.
 
 ## Notes
 
-- `.env` is gitignored; inject secrets via platform env vars.
-- Container starts with an empty ledger (`history/receipts.jsonl` excluded from image). Mount a volume if persistence is needed.
-- Settlement is mocked by default. To enable live settlement set `TELEGRAPH_SETTLEMENT_MODE=live` and `TELEGRAPH_EVM_PRIVATE_KEY=<funded Base Sepolia key>` (requires USDC on Base Sepolia).
+- `.env` is gitignored; inject secrets via platform env vars. Never commit them,
+  never paste them into a chat, never put them in `render.yaml`.
+- `GROQ_API_KEY` is not required. It is only a fallback if you have a working key;
+  Groq currently answers HTTP 403 on our account.
+- Container starts with an empty ledger (`history/receipts.jsonl` excluded from the
+  image). Mount a volume if persistence is needed.
+- Settlement is live by default in the blueprint (`TELEGRAPH_SETTLEMENT_MODE=live`).
+  Use `mock` to skip on-chain settlement; live mode requires
+  `TELEGRAPH_EVM_PRIVATE_KEY` with USDC on Base Sepolia.

@@ -14,19 +14,19 @@ ignore it — and the one real signal gets missed with the fake ones.
 ## What it does
 
 ```
-open signals ─→ fuse with an LLM ─→ calibrated risk card ─→ signed receipt ─→ resolve vs reality
+open signals ─→ deterministic score ─→ LLM narrates ─→ calibrated risk card ─→ signed receipt ─→ resolve vs reality
 ```
 
 1. **Collect** open signals for a set of locations — news, weather forecast, social chatter.
-2. **Fuse** them with an LLM (Groq, free tier) into one card per location: risk level, confidence, numeric drivers.
-3. **Constrain** the card: `HIGH` requires ≥ two *independent* signal families. One signal never escalates.
+2. **Score** them deterministically into one card per location: risk level, confidence, numeric drivers, 0–100 score. The LLM never chooses the level — it only narrates the card it is handed.
+3. **Constrain** the card: a city with no city-named report is capped at `LOW` and confidence ≤ 0.55. An unwitnessed outbreak never gets a confident card.
 4. **Issue a receipt** — every `HIGH`/`CRITICAL` card is sha256-hashed and appended to an immutable ledger.
 5. **Resolve** later against a real source: `CONFIRMED` or `REFUTED`. Resolution appends a new event; history is never mutated.
 6. **Score** it via `/scoreboard`: calls made, resolved, verdicts. `resolved: 0` means "not yet checked," not "hidden."
 
 ## Moat 1 — the receipt ledger
 
-The differentiator is not the LLM and not the data — both are commodities. It is
+The differentiator is not the model and not the data — both are commodities. It is
 **accountability**. A receipt is a falsifiable public claim: content-hash id,
 append-only JSONL, no rewrite helper, human resolution against a real source.
 That turns "trust our AI" into "check our ledger."
@@ -50,7 +50,7 @@ watch, which signals, how to read the weather, and *what `HIGH` means*.
 bio-surveillance · pandemic · endemic · wildfire · supply-chain ·
 commodity-disruption · financial-stress.
 
-Same fusion, same ledger, same resolution loop. Add a vertical, get the whole
+Same scoring, same ledger, same resolution loop. Add a vertical, get the whole
 apparatus free. (`verticals/README.md` has the ≤50-line recipe.)
 
 ## Live demo
@@ -60,13 +60,15 @@ apparatus free. (`verticals/README.md` has the ≤50-line recipe.)
 - `GET /telegraph/status` — mode / network / chain / boundary / last settlement.
 - `GET /telegraph/intents` — live miner discovery (134 intents).
 - `GET /risk`, `/receipts`, `/receipts/{id}`, `/scoreboard`, `/cities`, `/diseases`.
+- `GET /intel/llm` — provider proof: `{"provider":"commandcode","ok":true}`.
 - `python verify.py <id> CONFIRMED "<source>"` — resolve a call against reality.
 
 ## Stack & cost
 
-Python · FastAPI · Groq LLM (free tier, `openai/gpt-oss-120b`) · Open-Meteo +
-Google News RSS · append-only JSONL ledger · Telegraph buying layer (Base Sepolia)
-· Railway / Oracle Always Free. **$0/month.** 3 tests passing.
+Python · FastAPI · deterministic scoring engine with a narrator-only LLM
+(Command Code provider, `z-ai/glm-5.3-flash`; Groq optional fallback) ·
+Open-Meteo + Google News RSS · append-only JSONL ledger · Telegraph buying layer
+(Base Sepolia) · Render blueprint. **$0/month.** Full test suite green.
 
 ## Why it fits your track
 

@@ -2,14 +2,14 @@
 
 > **We don't just alert. We issue a signed prediction and later prove whether we were right.**
 
-Outbreak Sentinel is a **platform**, not a single-disease app. One engine watches
-any signal set, fuses it with an LLM, emits a **calibrated risk card**, logs it as
-a **tamper-evident receipt**, and later **resolves it against reality**. The name
-reflects our first vertical — disease surveillance — but the engine is
-vertical-agnostic.
+Outbreak Sentinel is a **platform**, not a single-disease app. One deterministic
+engine watches any signal set, scores it, emits a **calibrated risk card**, logs it
+as a **tamper-evident receipt**, and later **resolves it against reality**. An LLM
+never decides anything — it only narrates the card it is handed. The name reflects
+our first vertical — disease surveillance — but the engine is vertical-agnostic.
 
 ```
-open signals ─→ fuse (LLM) ─→ calibrated risk card ─→ signed receipt ─→ resolve vs reality
+open signals ─→ score (deterministic) ─→ narrate (LLM) ─→ calibrated risk card ─→ signed receipt ─→ resolve vs reality
 news / weather / social
 ```
 
@@ -66,25 +66,35 @@ Edit `config.yaml` to customize:
 - Diseases to track
 - News/social keywords
 - Risk thresholds
-- Groq model selection
+- LLM model id (`LLM_MODEL`, default `z-ai/glm-5.3-flash`)
 
 ### 3. Set API Key (Optional but Recommended)
 
 ```bash
 cp .env.example .env
-# Edit .env and add your Groq API key
-export GROQ_API_KEY=your_key_here
+# Edit .env and add your Command Code provider key
+CMDC_API_KEY=your_cmdc_api_key
 ```
 
-Get a free key at [console.groq.com](https://console.groq.com)
+The LLM provider is the **Command Code provider API** — OpenAI-compatible at
+`https://api.commandcode.ai/provider/v1`, model `z-ai/glm-5.3-flash`, key read from
+`CMDC_API_KEY`. Confirm it is live:
+
+```bash
+curl localhost:8000/intel/llm   # {"provider":"commandcode","ok":true}
+```
+
+`GROQ_API_KEY` is **optional**. It is only consulted as a fallback when a working
+key is supplied; Groq currently returns HTTP 403 on our account, so it is not the
+active engine.
 
 ### 4. Run
 
 ```bash
-# Full mode (with Groq LLM fusion)
+# Full mode — deterministic cards + LLM narration
 python outbreak_sentinel.py
 
-# Dry run (rule-based scoring only, no API key needed)
+# Dry run (deterministic scoring only, no API key needed)
 python outbreak_sentinel.py --dry-run
 
 # Custom config
@@ -99,6 +109,12 @@ crontab -e
 # Add:
 0 */6 * * * cd ~/telegraph-hackathon/outbreak-sentinel && /usr/bin/python3 outbreak_sentinel.py >> sentinel.log 2>&1
 ```
+
+### 6. Deploy
+
+The documented path is the **Render blueprint** in [`render.yaml`](render.yaml) —
+free plan, `/health` check, secrets marked `sync: false`. Full click-by-click
+instructions: [`docs/DEPLOY-RENDER.md`](docs/DEPLOY-RENDER.md).
 
 ## Verticals in depth — worked example: bio-surveillance
 
@@ -139,7 +155,8 @@ Signals: 45 news | 23 social | 5 cities
 | Weather | Open-Meteo API | 7-day forecast per city |
 | Social | Google News RSS | Keyword search (proxy for Twitter) |
 | Sentiment | Local | Keyword-based panic scoring |
-| Fusion | Groq LLM | Multi-signal reasoning |
+| Cards | Deterministic engine | Builds every card — city, disease, sources, 0–100 score |
+| Narration | Command Code provider | Writes `summary` + `recommendation` for a card it is handed; discarded if it names another city, disease or source |
 
 ### Risk Levels
 
@@ -148,9 +165,12 @@ Signals: 45 news | 23 social | 5 cities
 - **MODERATE** (≥30): Some signals — continue monitoring
 - **LOW** (<30): Baseline — routine surveillance
 
-A card only reaches `HIGH` when **≥2 independent signal families agree** (e.g. a
-news uptick *and* vector-friendly weather). One signal is never enough — that is
-the false-positive budget, enforced in the calibration rule.
+The score is 0–100, built from city-specific reports inside a 7-day window plus
+rain, heat and concern. Reports only count when the item names **this** city and
+matches the queried disease, and repeat coverage of one story counts once. With
+**zero** city-specific reports the card is capped at `LOW` with confidence ≤ 0.55 —
+an unwitnessed outbreak never gets a confident card. That is the false-positive
+budget, enforced in code rather than in prose.
 
 ### Adding a City
 
@@ -177,27 +197,29 @@ diseases:
 
 ```yaml
 thresholds:
-  news_high: 15        # More sensitive = lower number
-  news_medium: 8
-  sentiment_high: 0.5
-  temp_high: 33.0
-  rain_high: 40.0
+  sentiment_high: 0.6   # 0-1 panic score
+  sentiment_medium: 0.3
+  temp_high: 35.0       # °C
+  rain_high: 50.0       # mm
 ```
 
 ## How It Works
 
 1. **Fetch**: Async HTTP requests to Google News RSS and Open-Meteo
-2. **Score**: Keyword-based sentiment analysis on headlines
-3. **Fuse**: Groq LLM analyzes all signals per city and produces risk verdicts
-4. **Fallback**: If Groq unavailable, rule-based scoring using configurable thresholds
-5. **Receipt**: `HIGH`/`CRITICAL` cards persist as sha256-hashed receipts
-6. **Resolve**: `python verify.py <id> CONFIRMED|REFUTED "<source>"` scores them
-7. **Output**: Color-coded risk cards with drivers and recommendations
+2. **Score**: City-scoped evidence density (7-day window) + rain, heat and keyword panic
+3. **Build**: The deterministic engine assembles every card — city, disease, sources, numeric score, level, confidence
+4. **Narrate**: The LLM writes only `summary` and `recommendation` for the card it is handed. Its response is discarded if it names another city, disease or source. Engine label: `deterministic+narrator`
+5. **Fallback**: Without a provider the card keeps deterministic template prose — the grid is identical either way
+6. **Receipt**: `HIGH`/`CRITICAL` cards persist as sha256-hashed receipts
+7. **Resolve**: `python verify.py <id> CONFIRMED|REFUTED "<source>"` scores them
+8. **Output**: Color-coded risk cards with drivers and recommendations
 
 ## API
 
 ```
 GET /                    service health
+GET /health              uptime probe ({"status":"ok", ...})
+GET /intel/llm           provider proof ({"provider":"commandcode","ok":true})
 GET /risk                fresh fused risk cards (optional ?city=)
 GET /receipts            the ledger (optional ?status=OPEN|RESOLVED)
 GET /receipts/{id}       one tamper-evident receipt (404 if unknown)
@@ -212,11 +234,13 @@ two seams (vertical config + delivery adapter).
 
 ```
 verticals/            the domain seam: base.py + 3 verticals + registry
-outbreak_sentinel.py  the engine: fetch → fuse → card (+ rule-based fallback)
+outbreak_sentinel.py  the engine: fetch → score → card (provider-agnostic LLM helper)
 receipts.py           append-only ledger: make_receipt / ReceiptStore
 publish.py            HIGH/CRITICAL cards → receipts
 verify.py             human resolver: CONFIRMED | REFUTED + source
 app.py                FastAPI dashboard/API
+render.yaml           Render blueprint: free plan, /health check, sync:false secrets
+docs/DEPLOY-RENDER.md the deployment guide
 agents/               the studio-team pattern (director, signal architect, ...)
 pitch/                one-pager, architecture, demo script, hackathon fit
 config.yaml           cities, diseases, keywords, thresholds (bio vertical)
