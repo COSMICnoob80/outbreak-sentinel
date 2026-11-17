@@ -21,9 +21,9 @@ from publish import publish_cards
 from urllib.parse import urlsplit
 
 from outbreak_sentinel import (
+    _extract_json,
     city_query_phrase,
     default_config,
-    fuse_with_llm,
     gather_weather,
     iso_published,
     llm_chat,
@@ -125,10 +125,11 @@ def rule_based_risk(news_count, weather, sent, thresholds):
     score = 0
     drivers = []
     local_reports = news_count > 0
+    window = _window_label(CONFIG.get("city_lookback_hours", CONFIG.get("lookback_hours", 24)))
     if news_count >= thresholds["news_high"]:
-        score += 40; drivers.append({"kind": "news", "text": f"News uptick: {news_count} articles in 24h"})
+        score += 40; drivers.append({"kind": "news", "text": f"News uptick: {news_count} articles in {window}"})
     elif news_count >= thresholds["news_medium"]:
-        score += 20; drivers.append({"kind": "news", "text": f"Moderate news: {news_count} articles in 24h"})
+        score += 20; drivers.append({"kind": "news", "text": f"Moderate news: {news_count} articles in {window}"})
     forecast = weather.get("forecast", [])
     if forecast:
         max_rain = max((d.get("precipitation") or 0) for d in forecast)
@@ -187,11 +188,13 @@ class RiskCard(BaseModel):
     recommendation: str
     # Optional extras (additive, backwards-compatible):
     sources: Optional[list[dict]] = None       # [{title, url}] — real news items
-    summary: Optional[str] = None              # LLM narrative (or rule-based when LLM down)
+    summary: Optional[str] = None              # narrator prose (or deterministic template)
     chart: Optional[list[dict]] = None         # [{label, value}] — 7-day forecast sparkline
     illustration_hint: Optional[str] = None    # machine string for dashboard art
     region: Optional[str] = None               # "pakistan" | "global" (from city config)
     evidence_line: Optional[str] = None        # plain-language coverage line
+    risk_score: Optional[int] = None           # deterministic 0-100 score
+    evidence_count: Optional[int] = None       # city-specific reports rendered
 
 class RiskResponse(BaseModel):
     timestamp: str
@@ -205,7 +208,10 @@ class RiskResponse(BaseModel):
 
 
 _CARD_KEYS = ("city", "disease", "risk_level", "confidence", "drivers", "recommendation")
-_CARD_EXTRA_KEYS = ("sources", "summary", "chart", "illustration_hint", "region", "evidence_line")
+_CARD_EXTRA_KEYS = (
+    "sources", "summary", "chart", "illustration_hint", "region", "evidence_line",
+    "risk_score", "evidence_count",
+)
 _CARD_FIELDS = _CARD_KEYS + _CARD_EXTRA_KEYS
 
 
@@ -244,6 +250,10 @@ def _norm_card(c: dict, disease: str, fallback: dict | None = None) -> dict:
     if isinstance(drivers, (str, dict)):
         drivers = [drivers]
     normalized = [d for d in (_norm_driver(x) for x in drivers) if d]
+    try:
+        raw_score = float(c.get("risk_score", c.get("score", base.get("score", 0))) or 0)
+    except (TypeError, ValueError):
+        raw_score = 0.0
     card = {
         "city": str(c.get("city") or base.get("city") or "Unknown"),
         "disease": str(c.get("disease") or disease),
@@ -251,6 +261,7 @@ def _norm_card(c: dict, disease: str, fallback: dict | None = None) -> dict:
         "confidence": max(0.0, min(1.0, conf)),
         "drivers": normalized[:6],
         "recommendation": str(c.get("recommendation") or base.get("recommendation") or "Investigate signals"),
+        "risk_score": int(max(0, min(100, raw_score))),
     }
     # Pass through optional fused-engine extras when the LLM supplied them.
     summary = str(c.get("summary") or base.get("summary") or "").strip()
@@ -290,6 +301,7 @@ def _city_topic_news(news: list, city: str, disease: str) -> list[dict]:
     return [
         n for n in _city_news(news, city)
         if title_matches_topic(n.get("title"), disease, CONFIG)
+        and not _mentions_other_disease(n.get("title"), disease)
     ]
 
 
@@ -310,6 +322,27 @@ def _window_label(hours: int) -> str:
         days = hours // 24
         return f"{days} day" + ("" if days == 1 else "s")
     return f"{hours} hours"
+
+
+def display_disease(disease: str) -> str:
+    """Authoritative display label for the caller's disease (``dengue`` → ``Dengue``).
+
+    Every card carries this exact string; the model never supplies it.
+    """
+    raw = str(disease or "").strip()
+    if not raw:
+        return "Unspecified"
+    return " ".join(word[:1].upper() + word[1:].lower() for word in raw.split())
+
+
+def deterministic_summary(card: dict) -> str:
+    """Plain prose built only from the card's own facts — the narrator fallback."""
+    window = _window_label(CONFIG.get("city_lookback_hours", CONFIG.get("lookback_hours", 24)))
+    reports = len(card.get("sources") or [])
+    return (
+        f"{card.get('city', 'Unknown')} shows {card.get('risk_level', 'LOW')} risk for "
+        f"{card.get('disease', 'disease')}: {reports} city-specific reports in {window}."
+    )
 
 
 def _latest_date_label(items: list) -> str:
@@ -441,7 +474,7 @@ def _pick_sources(news: list, city: str, disease: str, limit: int = 5,
     """
     seen, picked = set(), []
     for n in _city_topic_news(news, city, disease):
-        key = (n.get("title") or "", n.get("link") or "")
+        key = _normalise_title(n.get("title") or "") or (n.get("link") or "")
         if key in seen:
             continue
         seen.add(key)
@@ -472,10 +505,7 @@ def _geography_gate(card: dict, has_city_evidence: bool, weather: dict | None) -
     if benign:
         card["risk_level"] = "LOW"
         card["recommendation"] = "Monitor — no city-specific outbreak reports"
-        card["summary"] = (
-            f"No city-specific outbreak reports for {card.get('city')} in the lookback window; "
-            "risk reflects weather only."
-        )
+        card["summary"] = deterministic_summary(card)
     elif card.get("risk_level") in ("HIGH", "CRITICAL"):
         card["risk_level"] = "MODERATE"
     return card
@@ -514,6 +544,20 @@ def _mentions_any(text: str, terms) -> bool:
     return any(re.search(rf"\b{re.escape(str(t))}\b", lowered) for t in terms)
 
 
+def _mentions_other_disease(text: str, disease: str) -> bool:
+    """True when the text carries another disease's distinctive vocabulary."""
+    own_terms = set(topic_terms_for(CONFIG, disease))
+    own = str(disease or "").strip().lower()
+    for other, terms in (CONFIG.get("topic_terms") or {}).items():
+        key = str(other).strip().lower()
+        if key == own or key == "default":
+            continue
+        distinctive = [t for t in terms if str(t).lower() not in own_terms]
+        if _mentions_any(text, distinctive):
+            return True
+    return False
+
+
 def _driver_off_topic(text: str, disease: str) -> bool:
     """True when a driver is about a different disease than this card's.
 
@@ -524,18 +568,9 @@ def _driver_off_topic(text: str, disease: str) -> bool:
     driver carrying only those — or no disease claim at all, like weather — is
     left alone.
     """
-    own_terms = topic_terms_for(CONFIG, disease)
-    if _mentions_any(text, own_terms):
+    if _mentions_any(text, topic_terms_for(CONFIG, disease)):
         return False
-    own = str(disease or "").strip().lower()
-    for other, terms in (CONFIG.get("topic_terms") or {}).items():
-        key = str(other).strip().lower()
-        if key == own or key == "default":
-            continue
-        distinctive = [t for t in terms if str(t).lower() not in set(own_terms)]
-        if _mentions_any(text, distinctive):
-            return True
-    return False
+    return _mentions_other_disease(text, disease)
 
 
 def _drivers_on_topic(drivers: list, disease: str, limit: int = 4) -> list:
@@ -582,6 +617,7 @@ def _attach_card_extras(cards: list, news: list, weather_map: dict, disease: str
             card["sources"] = enriched
         else:
             card["sources"] = _pick_sources(news, str(city), disease)
+        card["evidence_count"] = len(card["sources"])
         has_evidence = bool(card["sources"]) or bool(city_items)
         card = _geography_gate(card, has_evidence, w)
         card["drivers"] = _drivers_on_topic(card.get("drivers") or [], disease)
@@ -593,45 +629,182 @@ def _attach_card_extras(cards: list, news: list, weather_map: dict, disease: str
         if card.get("illustration_hint") is None:
             card["illustration_hint"] = _illustration_hint(card, w)
         if not card.get("summary"):
-            texts = [_driver_text(d) for d in (card.get("drivers") or [])[:2]]
-            top = "; ".join(t for t in texts if t) or "no strong signals in the lookback window"
-            card["summary"] = (
-                f"{city} shows {card.get('risk_level', 'LOW')} risk for {card.get('disease', disease)}: {top}."
-            )
+            card["summary"] = deterministic_summary(card)
     return cards
 
 
-async def _fuse_or_rule_based(news, weather, social, sent, disease, city=None):
-    """LLM fusion FIRST — the real agentic path."""
-    fused = []
-    try:
-        # The provider call is bounded at 60s internally; this outer bound is
-        # the last line of defence so a hung provider never hangs the request.
-        fused = await asyncio.wait_for(
-            fuse_with_llm(news, weather, social, CONFIG), timeout=70
-        ) or []
-    except Exception:
-        fused = []
-    if fused:
-        cards = [_norm_card(c, disease) for c in fused if isinstance(c, dict) and c.get("risk_level")]
-        # Only configured cities may carry a card: an invented place is dropped.
-        known = {str(c.get("name", "")).strip().lower() for c in CONFIG.get("cities", [])}
-        cards = [c for c in cards if c["city"].strip().lower() in known]
-        if city:
-            cards = [c for c in cards if c["city"].lower() == city.lower()]
-        if cards:
-            return cards, "llm"
+def _build_deterministic_cards(news, weather, social, sent, disease, city=None):
+    """Build one card per monitored city from signals alone — never from a model.
+
+    The requested disease is authoritative: every card carries its display form
+    and no other. Sources, score, level, confidence and chart all come from the
+    deterministic layer, so two identical calls cannot disagree.
+    """
+    weather_map = _weather_by_city(weather)
+    target = str(city).strip().lower() if city else None
+    label = display_disease(disease)
     cards = []
-    for w in weather:
-        city_news = _city_topic_news(news, w["city"], disease)
-        city_sent = sentiment_score(" ".join(n.get("title", "") for n in city_news))
-        card = _norm_card(
-            rule_based_risk(len(city_news), w, city_sent, CONFIG["thresholds"]), disease, w
+    for configured in CONFIG.get("cities", []):
+        name = str(configured.get("name") or "").strip()
+        if not name or (target and name.lower() != target):
+            continue
+        city_weather = weather_map.get(name.lower()) or {"city": name}
+        city_news = _city_topic_news(news, name, disease)
+        city_sentiment = sentiment_score(" ".join(n.get("title", "") for n in city_news))
+        base = rule_based_risk(
+            len(city_news), city_weather, city_sentiment, CONFIG["thresholds"]
         )
-        card["city"] = w["city"]
-        if city is None or w["city"].lower() == city.lower():
-            cards.append(card)
-    return cards, "rule-based"
+        card = _norm_card(base, disease, city_weather)
+        card["city"] = name
+        card["disease"] = label
+        cards.append(card)
+    return cards, "deterministic"
+
+
+RISK_LEVELS = ("LOW", "MODERATE", "HIGH", "CRITICAL")
+_LEVEL_INDEX = {level: i for i, level in enumerate(RISK_LEVELS)}
+_NARRATOR_ALLOWED_KEYS = {"summary", "recommendation", "risk_level"}
+_NARRATOR_TIMEOUT_S = 25
+
+
+def narrator_enabled() -> bool:
+    """Narration is on by default; ``SENTINEL_NARRATOR=0`` disables it (tests)."""
+    value = os.environ.get("SENTINEL_NARRATOR", "1").strip().lower()
+    return value not in ("0", "false", "off", "no")
+
+
+def _sentence_trim(text: str, limit: int = 3) -> str:
+    sentences = re.split(r"(?<=[.!?])\s+", str(text or "").strip())
+    return " ".join(s for s in sentences[:limit] if s).strip()
+
+
+def _narrator_prompt(card: dict) -> str:
+    source_lines = "\n".join(
+        f"- {s.get('title', '')} | {s.get('outlet', '')} | "
+        f"{s.get('published', '')} | {s.get('url', '')}"
+        for s in card.get("sources") or []
+    )
+    level = card.get("risk_level", "LOW")
+    return f"""You are a narrator for a public-health surveillance system. The facts below are already decided and authoritative. You may ONLY write prose.
+
+CARD (authoritative — do not change):
+city: {card.get('city')}
+disease: {card.get('disease')}
+risk_level: {level}
+confidence: {card.get('confidence')}
+evidence_count: {card.get('evidence_count')}
+risk_score: {card.get('risk_score')}/100
+
+SOURCES (the ONLY evidence you may cite — never add another):
+{source_lines or "- (none)"}
+
+Return JSON with exactly these keys:
+{{"summary": "at most 3 sentences, citing only the sources above", "recommendation": "one sentence of monitoring guidance", "risk_level": "optional: keep {level} or change it by at most one step"}}
+
+Rules:
+- Never name a different city or a different disease.
+- Never add sources, links, statistics or a numeric risk score.
+- Output JSON only."""
+
+
+def _narrator_violation(payload, card: dict, disease: str) -> str | None:
+    """Why a narrator response is out of lane, or ``None`` when it is acceptable."""
+    if not isinstance(payload, dict):
+        return "not-an-object"
+    extra_keys = set(payload) - _NARRATOR_ALLOWED_KEYS
+    if extra_keys:
+        return f"extra-key:{','.join(sorted(extra_keys))}"
+    summary = payload.get("summary")
+    if not isinstance(summary, str) or not summary.strip():
+        return "missing-summary"
+    recommendation = payload.get("recommendation")
+    if recommendation is not None and not isinstance(recommendation, str):
+        return "bad-recommendation"
+    level = payload.get("risk_level")
+    if level is not None:
+        if not isinstance(level, str):
+            return "bad-level"
+        level = level.strip().upper()
+        if level not in _LEVEL_INDEX:
+            return f"unknown-level:{level}"
+        current = _LEVEL_INDEX.get(str(card.get("risk_level", "LOW")).upper())
+        if current is None or abs(_LEVEL_INDEX[level] - current) > 1:
+            return f"level-jump:{card.get('risk_level')}->{level}"
+
+    text = f"{summary} {recommendation or ''}"
+    own_city = str(card.get("city") or "").strip().lower()
+    for configured in CONFIG.get("cities", []):
+        other = str(configured.get("name") or "").strip().lower()
+        if not other or other == own_city:
+            continue
+        if re.search(rf"\b{re.escape(other)}\b", text.lower()):
+            return f"other-city:{other}"
+    if _driver_off_topic(text, disease):
+        return "other-disease"
+    supplied = {
+        str(s.get("url") or "").rstrip(".,);")
+        for s in card.get("sources") or []
+        if s.get("url")
+    }
+    for url in re.findall(r"https?://\S+", text):
+        if url.rstrip(".,);") not in supplied:
+            return f"unsupplied-url:{url}"
+    if re.search(r"\b\d{1,3}\s*/\s*100\b", text):
+        return "numeric-score"
+    return None
+
+
+async def _narrate_one(card: dict, disease: str) -> dict | None:
+    """One bounded narrator call. ``None`` means: keep the deterministic prose."""
+    result = await llm_chat(
+        [{"role": "user", "content": _narrator_prompt(card)}],
+        config=CONFIG,
+        max_tokens=320,
+        temperature=0.2,
+    )
+    if not result.get("ok") or not result.get("content"):
+        return None
+    payload = _extract_json(result["content"])
+    violation = _narrator_violation(payload, card, disease)
+    if violation:
+        print(f"narrator discarded city={card.get('city')} reason={violation}")
+        return None
+    return payload
+
+
+async def narrate_cards(cards: list, disease: str) -> tuple[list, int]:
+    """Rewrite each sourced card's prose. Facts never change; level moves ≤ 1 step."""
+    if not narrator_enabled() or llm_provider(CONFIG) is None:
+        return cards, 0
+    targets = [card for card in cards if card.get("sources")]
+    if not targets:
+        return cards, 0
+    try:
+        results = await asyncio.wait_for(
+            asyncio.gather(*[_narrate_one(card, disease) for card in targets]),
+            timeout=_NARRATOR_TIMEOUT_S,
+        )
+    except asyncio.TimeoutError:
+        print("narrator timed out; keeping deterministic prose")
+        return cards, 0
+
+    narrated = 0
+    for card, payload in zip(targets, results):
+        if not payload:
+            continue
+        card["summary"] = _sentence_trim(payload["summary"])
+        recommendation = str(payload.get("recommendation") or "").strip()
+        if recommendation:
+            card["recommendation"] = recommendation
+        level = str(payload.get("risk_level") or "").strip().upper()
+        if level and level != card.get("risk_level"):
+            print(
+                f"narrator level change city={card.get('city')} "
+                f"{card.get('risk_level')}->{level}"
+            )
+            card["risk_level"] = level
+        narrated += 1
+    return cards, narrated
 
 
 # ── Endpoints ─────────────────────────────────────────────────────────
@@ -666,14 +839,17 @@ def _risk_cache_read(key: tuple):
 
 
 async def _build_risk(city: Optional[str], disease: str) -> dict:
-    """One live grid build: RSS + weather collection, then LLM fusion."""
+    """One live grid build: collect signals, build factual cards, then narrate."""
     try:
         news, weather, social, sent = await asyncio.wait_for(collect_signals(), timeout=30)
     except asyncio.TimeoutError:
         raise HTTPException(status_code=504, detail="Signal collection timed out")
 
-    cards, engine = await _fuse_or_rule_based(news, weather, social, sent, disease, city)
+    cards, engine = _build_deterministic_cards(news, weather, social, sent, disease, city)
     cards = _attach_card_extras(cards, news, _weather_by_city(weather), disease)
+    cards, narrated = await narrate_cards(cards, disease)
+    if engine == "deterministic":
+        engine = "deterministic+narrator" if narrated else "deterministic"
     if city and not cards:
         raise HTTPException(status_code=404, detail=f"No data for city: {city}")
 
@@ -916,31 +1092,21 @@ async def telegraph_risk(req: TelegraphRiskRequest):
             "testnet_boundary": TELEGRAPH_CONFIG["testnet_boundary"],
         }
 
-    # Build the resulting risk card via the real LLM fusion path (additive reuse).
+    # Same card builder as /risk: deterministic facts first, prose narrated second.
     risk_card = None
     engine = None
     try:
         news, weather, social, sent = await asyncio.wait_for(collect_signals(), timeout=30)
         weather_map = _weather_by_city(weather)
-        cards, engine = await _fuse_or_rule_based(news, weather, social, sent, req.disease, req.city)
+        cards, engine = _build_deterministic_cards(
+            news, weather, social, sent, req.disease, req.city
+        )
         cards = _attach_card_extras(cards, news, weather_map, req.disease)
+        cards, narrated = await narrate_cards(cards, req.disease)
+        if engine == "deterministic":
+            engine = "deterministic+narrator" if narrated else "deterministic"
         if cards:
             risk_card = dict(cards[0])
-            risk_card["city"] = req.city or risk_card["city"]
-        elif weather:
-            w = next(
-                (x for x in weather if req.city and x["city"].lower() == req.city.lower()),
-                weather[0],
-            )
-            city_news = _city_topic_news(news, w["city"], req.disease)
-            city_sent = sentiment_score(" ".join(n.get("title", "") for n in city_news))
-            risk_card = _norm_card(
-                rule_based_risk(len(city_news), w, city_sent, CONFIG["thresholds"]), req.disease, w
-            )
-            risk_card["city"] = w["city"]
-            risk_card["disease"] = req.disease
-            engine = "rule-based"
-            risk_card = _attach_card_extras([risk_card], news, weather_map, req.disease)[0]
     except Exception as exc:  # never fail the demo endpoint on signal hiccups
         risk_card = {"error": str(exc)}
 

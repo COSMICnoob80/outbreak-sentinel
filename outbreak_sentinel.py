@@ -226,7 +226,11 @@ def topic_terms_for(config: dict, disease: str) -> list[str]:
     """Vocabulary for the queried disease, falling back to a generic set."""
     table = (config or {}).get("topic_terms") or {}
     key = str(disease or "").strip().lower()
-    terms = table.get(key) or table.get("default") or []
+    terms = table.get(key)
+    if not terms and " " in key:
+        # "hepatitis c" is still hepatitis; resolve the head noun before default.
+        terms = table.get(key.split()[0])
+    terms = terms or table.get("default") or []
     return [str(t).strip().lower() for t in terms if str(t).strip()]
 
 

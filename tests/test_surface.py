@@ -49,7 +49,7 @@ async def _fake_collect_signals():
     return [], [], [], 0.0
 
 
-async def _fake_fuse(news, weather, social, sent, disease, city=None):
+def _fake_fuse(news, weather, social, sent, disease, city=None):
     return ([{
         "city": "Karachi",
         "disease": disease,
@@ -84,7 +84,7 @@ def test_settlement_writes_one_ledger_row(tmp_path, monkeypatch):
     monkeypatch.setattr(settlements, "LEDGER_PATH", str(ledger_path))
     monkeypatch.setattr(app_module, "_telegraph_client", FakeClient())
     monkeypatch.setattr(app_module, "collect_signals", _fake_collect_signals)
-    monkeypatch.setattr(app_module, "_fuse_or_rule_based", _fake_fuse)
+    monkeypatch.setattr(app_module, "_build_deterministic_cards", _fake_fuse)
 
     client = TestClient(app_module.app)
     resp = client.post("/telegraph/risk", json={

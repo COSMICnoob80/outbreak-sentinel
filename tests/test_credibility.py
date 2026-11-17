@@ -39,7 +39,7 @@ async def _fake_collect_signals():
     return _news(), _weather(), [], 0.4
 
 
-async def _fake_rule_fuse(news, weather, social, sent, disease, city=None):
+def _fake_rule_fuse(news, weather, social, sent, disease, city=None):
     cards = []
     for w in weather:
         card = app_module._norm_card(
@@ -119,7 +119,7 @@ def test_rule_path_kinds_come_from_their_real_source():
 def test_second_risk_call_is_cached(monkeypatch):
     monkeypatch.setattr(app_module, "_RISK_CACHE", {})
     monkeypatch.setattr(app_module, "collect_signals", _fake_collect_signals)
-    monkeypatch.setattr(app_module, "_fuse_or_rule_based", _fake_rule_fuse)
+    monkeypatch.setattr(app_module, "_build_deterministic_cards", _fake_rule_fuse)
     client = TestClient(app_module.app)
     params = {"city": "Karachi", "disease": "dengue"}
 
