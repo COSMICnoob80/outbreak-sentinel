@@ -504,7 +504,7 @@
       drivers.forEach(function(d, idx){
         var li = el("li");
         li.appendChild(el("span", "num", String(idx + 1).padStart(2, "0")));
-        li.appendChild(el("span", null, String(d)));
+        li.appendChild(el("span", null, String(d && typeof d === "object" ? (d.text || "") : d)));
         ul.appendChild(li);
       });
       wrap.appendChild(ul);

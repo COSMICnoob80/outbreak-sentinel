@@ -119,7 +119,7 @@ async function buy() {
     document.getElementById('r_answer').textContent = JSON.stringify(d.ranked_answer, null, 2);
     const rc = d.risk_card || {};
     document.getElementById('r_risk').className = 'risk ' + (rc.risk_level || '');
-    document.getElementById('r_risk').textContent = rc.city + ' — ' + rc.disease + ' — ' + rc.risk_level + ' (conf ' + rc.confidence + ') ' + (rc.drivers||[]).join('; ');
+    document.getElementById('r_risk').textContent = rc.city + ' — ' + rc.disease + ' — ' + rc.risk_level + ' (conf ' + rc.confidence + ') ' + (rc.drivers||[]).map(function(d){return d&&typeof d==='object'?(d.text||''):String(d);}).join('; ');
     loadStatus();
   } catch (e) {
     alert('Error: ' + e);

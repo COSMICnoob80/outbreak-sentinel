@@ -54,7 +54,9 @@ def test_no_local_signal_forces_low_confidence():
     card = app_module.rule_based_risk(0, BENIGN_WEATHER, 0.91, app_module.CONFIG["thresholds"])
     assert card["risk_level"] == "LOW"
     assert card["confidence"] <= 0.55
-    assert "no city-specific outbreak signal" in card["drivers"]
+    assert any(
+        d.get("text") == "no city-specific outbreak signal" for d in card["drivers"]
+    )
 
 
 def test_llm_card_without_local_evidence_is_downgraded():

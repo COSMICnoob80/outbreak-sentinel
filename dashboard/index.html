@@ -403,6 +403,7 @@
         <span class="badge"><span class="sq"></span> Surveillance only</span>
         <span class="badge cyan"><span class="sq"></span> LIVE</span>
         <span class="live-sub" id="engineLabel">engine: —</span>
+        <span class="live-sub" id="cacheAge" hidden></span>
         <span class="demo-pill" id="demoPill" hidden title="Demo data — static design dataset">demo data</span>
       </div>
       <div class="tools-row">
@@ -697,7 +698,7 @@ function estScore(head,base){
 }
 
 /* ================= state ================= */
-var state={mode:"loading",engine:"",signals:{},stamp:"",cards:[],feed:[],intents:null,intentCount:0,status:null};
+var state={mode:"loading",engine:"",cacheAge:null,signals:{},stamp:"",cards:[],feed:[],intents:null,intentCount:0,status:null};
 var riskF={sort:"score",order:"desc",vert:"all"};
 var feedF={fam:"all",vert:"all"};
 var uidSeq=0;
@@ -818,7 +819,10 @@ function toCard(raw,mode){
     hazard:String(raw.disease||"unspecified hazard"), level:lvl, conf:cf,
     score:scoreFor(raw,lvl,cf), vert:"bio-surveillance", receipt:null,
     summary:raw.summary?String(raw.summary):"",
-    drivers:Array.isArray(raw.drivers)?raw.drivers.map(String).slice(0,6):[],
+    drivers:Array.isArray(raw.drivers)?raw.drivers.slice(0,6).map(function(d){
+      if(d&&typeof d==="object")return {kind:String(d.kind||""),text:String(d.text||"")};
+      return {kind:"",text:String(d)};
+    }).filter(function(d){return d.text;}):[],
     recommendation:raw.recommendation?String(raw.recommendation):"",
     evidenceLine:raw.evidence_line?String(raw.evidence_line):"",
     sources:Array.isArray(raw.sources)?raw.sources.filter(function(s){return s&&s.url;}).map(function(s){
@@ -935,13 +939,13 @@ function renderCard(c){
     detail.appendChild(h("div","dh","Contributing signals ("+c.drivers.length+")"));
     c.drivers.forEach(function(d,i){
       var line=h("div","driver"+((i%2)?" amber":""));
-      line.appendChild(h("span","famtab",i===0?"news":(i===1?"weather":"social")));
+      line.appendChild(h("span","famtab",String(d.kind||"").toUpperCase()||"SIGNAL"));
       var bar=h("span","bar");
       var fill=h("i");
       fill.style.width=Math.max(18,Math.min(100,100-(i*17)))+"%";
       bar.appendChild(fill);
       line.appendChild(bar);
-      line.appendChild(h("span",null,d));
+      line.appendChild(h("span",null,String(d.text||"")));
       detail.appendChild(line);
     });
   }
@@ -1299,6 +1303,13 @@ function updateTimelineCaption(){
 function renderAll(){
   $("#demoPill").hidden=state.mode!=="demo";
   $("#engineLabel").textContent="engine: "+(state.mode==="demo"?"demo (static)":(state.mode==="live"?(state.engine||"\u2014"):"\u2014"));
+  var ca=$("#cacheAge");
+  if(ca){
+    if(state.mode==="live"&&state.cacheAge!=null&&isFinite(Number(state.cacheAge))){
+      ca.hidden=false;
+      ca.textContent="updated "+Math.max(0,Math.round(Number(state.cacheAge)))+"s ago";
+    }else{ca.hidden=true;ca.textContent="";}
+  }
   $("#footStamp").textContent=state.mode==="live"
     ? ("last fuse "+(state.stamp||"now")+" \u00b7 engine "+(state.engine||"\u2014")+" \u00b7 testnet Base Sepolia (84532)")
     : (state.mode==="demo"?"demo data \u2014 static 8-city design dataset":"contacting /risk\u2026");
@@ -1372,6 +1383,7 @@ function loadRisk(){
       var raw=Array.isArray(d&&d.risk_cards)?d.risk_cards:[];
       state.mode="live";
       state.engine=(d&&d.engine)?String(d.engine):"";
+      state.cacheAge=(d&&d.cache_age_s!=null)?Number(d.cache_age_s):null;
       state.signals=(d&&d.signals&&typeof d.signals==="object")?d.signals:{};
       state.stamp=(d&&d.timestamp)?String(d.timestamp):"";
       state.cards=raw.map(function(rc){return toCard(rc,"live");});
@@ -1764,7 +1776,9 @@ function renderReceipt(d){
     if(Array.isArray(rc.drivers)&&rc.drivers.length){
       var dl=h("p","rc-text");
       dl.appendChild(h("b",null,"Driving signals: "));
-      dl.appendChild(document.createTextNode(rc.drivers.map(String).slice(0,5).join(" \u00b7 ")));
+      dl.appendChild(document.createTextNode(rc.drivers.map(function(d){
+        return d&&typeof d==="object"?String(d.text||""):String(d);
+      }).slice(0,5).join(" \u00b7 ")));
       block.appendChild(dl);
     }
     if(rc.recommendation){

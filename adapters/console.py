@@ -14,7 +14,8 @@ def format_card(card: dict) -> str:
         frac = confidence / 100.0 if confidence > 1 else confidence
         lines.append(f"  confidence: {frac:.0%}")
     for driver in card.get("drivers") or []:
-        lines.append(f"  - {driver}")
+        text = driver.get("text") if isinstance(driver, dict) else driver
+        lines.append(f"  - {text}")
     if card.get("recommendation"):
         lines.append(f"  recommendation: {card['recommendation']}")
     if card.get("receipt_id"):

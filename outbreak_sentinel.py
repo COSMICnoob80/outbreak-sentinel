@@ -99,6 +99,46 @@ def default_config() -> dict:
             "dengue symptoms", "malaria symptoms", "fever", "sick",
             "hospital overflow", "patients", "whooping cough",
         ],
+        # Per-disease topic vocabulary. A headline counts as evidence only when
+        # it names the city AND matches one of these terms.
+        "topic_terms": {
+            "dengue": [
+                "dengue", "dengue fever", "aedes", "mosquito", "outbreak",
+                "vector", "cases", "hospitalised", "hospitalized",
+            ],
+            "malaria": [
+                "malaria", "plasmodium", "anopheles", "mosquito", "outbreak",
+                "cases", "fever", "hospitalised", "hospitalized",
+            ],
+            "cholera": [
+                "cholera", "vibrio", "diarrhoea", "diarrhea", "waterborne",
+                "outbreak", "cases", "hospitalised", "hospitalized",
+            ],
+            "typhoid": [
+                "typhoid", "enteric fever", "salmonella", "outbreak", "cases",
+                "fever", "hospitalised", "hospitalized",
+            ],
+            "hepatitis": [
+                "hepatitis", "jaundice", "liver", "outbreak", "cases",
+                "hospitalised", "hospitalized",
+            ],
+            "measles": [
+                "measles", "rubeola", "outbreak", "cases", "vaccination",
+                "vaccine", "hospitalised", "hospitalized",
+            ],
+            "pertussis": [
+                "pertussis", "whooping cough", "cough", "outbreak", "cases",
+                "vaccination", "vaccine", "hospitalised", "hospitalized",
+            ],
+            "mpox": [
+                "mpox", "monkeypox", "outbreak", "cases", "clade",
+                "hospitalised", "hospitalized",
+            ],
+            "default": [
+                "outbreak", "cases", "fever", "infection", "disease",
+                "hospitalised", "hospitalized",
+            ],
+        },
         "thresholds": {
             "news_high": 10,
             "news_medium": 5,
@@ -180,6 +220,23 @@ def title_mentions_city(title: str, city: str) -> bool:
     """True only when the headline itself names the city (word boundaries)."""
     text = str(title or "").lower()
     return any(re.search(rf"\b{re.escape(t)}\b", text) for t in city_match_terms(city))
+
+
+def topic_terms_for(config: dict, disease: str) -> list[str]:
+    """Vocabulary for the queried disease, falling back to a generic set."""
+    table = (config or {}).get("topic_terms") or {}
+    key = str(disease or "").strip().lower()
+    terms = table.get(key) or table.get("default") or []
+    return [str(t).strip().lower() for t in terms if str(t).strip()]
+
+
+def title_matches_topic(title: str, disease: str, config: dict) -> bool:
+    """True when the headline talks about the queried disease (word boundaries)."""
+    text = str(title or "").lower()
+    return any(
+        re.search(rf"\b{re.escape(t)}\b", text)
+        for t in topic_terms_for(config, disease)
+    )
 
 
 # ── Signal Fetchers ───────────────────────────────────────────────────
@@ -401,10 +458,10 @@ def rule_based_risk(
 
     if news_count >= thresholds["news_high"]:
         score += 40
-        drivers.append(f"News uptick: {news_count} articles in 24h")
+        drivers.append({"kind": "news", "text": f"News uptick: {news_count} articles in 24h"})
     elif news_count >= thresholds["news_medium"]:
         score += 20
-        drivers.append(f"Moderate news: {news_count} articles in 24h")
+        drivers.append({"kind": "news", "text": f"Moderate news: {news_count} articles in 24h"})
 
     forecast = weather.get("forecast", [])
     if forecast:
@@ -412,20 +469,20 @@ def rule_based_risk(
         max_temp = max((d.get("temp_max") or 0) for d in forecast)
         if max_rain >= thresholds["rain_high"]:
             score += 20
-            drivers.append(f"Heavy rain forecast: {max_rain:.1f}mm")
+            drivers.append({"kind": "weather", "text": f"Heavy rain forecast: {max_rain:.1f}mm"})
         if max_temp >= thresholds["temp_high"]:
             score += 15
-            drivers.append(f"High temperature: {max_temp:.1f}°C")
+            drivers.append({"kind": "weather", "text": f"High temperature: {max_temp:.1f}°C"})
 
     if local_reports:
         if sentiment >= thresholds["sentiment_high"]:
             score += 25
-            drivers.append(f"High panic sentiment: {sentiment:.2f}")
+            drivers.append({"kind": "social", "text": f"High panic sentiment: {sentiment:.2f}"})
         elif sentiment >= thresholds["sentiment_medium"]:
             score += 10
-            drivers.append(f"Moderate concern: {sentiment:.2f}")
+            drivers.append({"kind": "social", "text": f"Moderate concern: {sentiment:.2f}"})
     else:
-        drivers.insert(0, "no city-specific outbreak signal")
+        drivers.insert(0, {"kind": "model", "text": "no city-specific outbreak signal"})
 
     if score >= 70:
         risk_level = "CRITICAL"
@@ -757,7 +814,8 @@ def output_risk_card(
         if drivers:
             print(f"   Drivers:")
             for d in drivers:
-                print(f"     • {d}")
+                text = d.get("text") if isinstance(d, dict) else d
+                print(f"     • {text}")
         print(f"   Recommendation: {recommendation}")
         print()
 
@@ -862,6 +920,9 @@ async def main():
             city_news = [
                 a for a in all_news
                 if title_mentions_city(a.get("title"), city_data["city"])
+                and title_matches_topic(
+                    a.get("title"), config["diseases"][0], config
+                )
             ]
             city_sentiment = simple_sentiment(" ".join(a.get("title", "") for a in city_news))
             card = rule_based_risk(

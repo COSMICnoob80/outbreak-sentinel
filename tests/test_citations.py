@@ -79,7 +79,7 @@ def test_card_evidence_line_counts_city_reports():
         [card], KARACHI_ITEMS, {"karachi": BENIGN_WEATHER}, "dengue"
     )[0]
     assert out["evidence_line"] == (
-        "2 city-specific reports in the last 7 days \u2014 latest 15 Nov."
+        "2 city-specific dengue reports in the last 7 days \u2014 latest 15 Nov."
     )
     assert all(s["outlet"] and s["published"] for s in out["sources"])
 
@@ -95,7 +95,7 @@ def test_card_without_city_reports_is_honest():
         "dengue",
     )[0]
     assert out["evidence_line"] == (
-        "0 city-specific reports in the last 7 days; risk reflects weather only."
+        "0 city-specific dengue reports in the last 7 days; risk reflects weather only."
     )
 
 

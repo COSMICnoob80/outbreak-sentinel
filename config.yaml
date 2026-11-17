@@ -78,6 +78,93 @@ social_keywords:
   - "patients"
   - "whooping cough"
 
+# Topic vocabulary per disease. A headline is evidence for a card only when it
+# names the city AND contains one of these terms for the queried disease.
+# Keeping this here means tuned wording never hides inside a scoring function.
+topic_terms:
+  dengue:
+    - dengue
+    - "dengue fever"
+    - aedes
+    - mosquito
+    - outbreak
+    - vector
+    - cases
+    - hospitalised
+    - hospitalized
+  malaria:
+    - malaria
+    - plasmodium
+    - anopheles
+    - mosquito
+    - outbreak
+    - cases
+    - fever
+    - hospitalised
+    - hospitalized
+  cholera:
+    - cholera
+    - vibrio
+    - diarrhoea
+    - diarrhea
+    - waterborne
+    - outbreak
+    - cases
+    - hospitalised
+    - hospitalized
+  typhoid:
+    - typhoid
+    - "enteric fever"
+    - salmonella
+    - outbreak
+    - cases
+    - fever
+    - hospitalised
+    - hospitalized
+  hepatitis:
+    - hepatitis
+    - jaundice
+    - liver
+    - outbreak
+    - cases
+    - hospitalised
+    - hospitalized
+  measles:
+    - measles
+    - rubeola
+    - outbreak
+    - cases
+    - vaccination
+    - vaccine
+    - hospitalised
+    - hospitalized
+  pertussis:
+    - pertussis
+    - "whooping cough"
+    - cough
+    - outbreak
+    - cases
+    - vaccination
+    - vaccine
+    - hospitalised
+    - hospitalized
+  mpox:
+    - mpox
+    - monkeypox
+    - outbreak
+    - cases
+    - clade
+    - hospitalised
+    - hospitalized
+  default:
+    - outbreak
+    - cases
+    - fever
+    - infection
+    - disease
+    - hospitalised
+    - hospitalized
+
 # Risk thresholds for rule-based scoring (used as fallback)
 thresholds:
   news_high: 10        # articles in lookback window
