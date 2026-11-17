@@ -1034,3 +1034,18 @@ any city; (2) `_pick_sources` appended disease-only matches even when the headli
 - **`config.yaml` `narrator.max_tokens: 3000` unchanged** — it is a ceiling, not spend. Added one comment line: a reasoning model needs a high ceiling, a non-reasoning model answers far below it. The existing `hy4-flash` measurement note stays as history.
 - **Proofs:** `grep -rn "hy4-flash" render.yaml .env.example README.md docs/DEPLOY-RENDER.md` → **one hit**, the comparison table row in `docs/DEPLOY-RENDER.md:29`; no config value. `grep -n "glm-5.3-flash" render.yaml .env.example` → `render.yaml:18` and `.env.example:6`. `grep -rn "hy4-flash" --include=*.py .` → none. `env -u PYTHONPATH .venv/bin/python -m pytest -q` → **76 passed**.
 - Commit `chore(config): standardise on glm-5.3-flash, document measured token costs` pushed; work-order file `.beat/wo-soldier-z.md` deleted.
+
+## 2026-11-17 — Soldier AA
+
+### Submission text truth pass (`demo/HACKATHON-SUBMISSION.md`)
+- Claims verified against shipped code and corrected:
+  - `PAKISTAN/GLOBAL` grouping → `PAKISTAN` / `OTHER CITIES` (`dashboard/index.html:1065`).
+  - "per-item signal scores" → feed rows `confidence 70%` (`dashboard/index.html:1111`), weather rows `peak 0 mm` (`:1110`).
+  - "always-on sparklines" → labelled `rain forecast · 7d` strip; `no rain forecast` when all seven values are 0 (`dashboard/index.html:865,971,973,1003`).
+  - hardcoded `134 intents` → `130+ live intents` (live `GET /engine/v1/intents` returned `count: 136`).
+  - engine row added (strength framing): city, disease, sources and 0–100 score built in code (`app.py:609-640`; score = 7-day city-specific reports + rain + heat + concern); LLM is a narrator limited to `summary`/`recommendation` plus a ≤1-step level move, discarded on other-city, other-disease, unsupplied URL, numeric score or extra key (`app.py:689-733`).
+  - demo URLs: kept the local `127.0.0.1` run command, added tailnet `http://100.82.76.91:8001/telegraph/dashboard` (tailnet-only; host awake; bind `0.0.0.0`), kept "no public deployment claimed" + Render blueprint path.
+  - settlement hashes still match `state/hackathon-state.md:35-37`; full `0xf2276f58…` hash in `SPINE.md:394`, re-checked on Base Sepolia at block 48407418; burner balance corrected 19.97 → **19.95 USDC** (Base Sepolia `balanceOf`, read 2026-11-17).
+- `demo/SCRIPT-60s.md` and `demo/SHOTLIST.md`: same UI corrections (`GLOBAL`→`OTHER CITIES`, `sparkline`→`rain forecast · 7d` strip, `engine: llm`→`deterministic+narrator`) and balance 19.97 → 19.95.
+- Proofs: `grep -n "GLOBAL" demo/HACKATHON-SUBMISSION.md` → none; `grep -n "100.82.76.91"` → line 13; `env -u PYTHONPATH .venv/bin/python -m pytest -q` → **76 passed**.
+- Commit `3bc856e` pushed; work-order file `.beat/wo-soldier-aa.md` deleted.
