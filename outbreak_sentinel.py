@@ -69,6 +69,19 @@ class C:
 
 # ── Config ─────────────────────────────────────────────────────────────
 
+# Score credit per city-scoped report count, densest band first: the first band
+# whose ``min_reports`` is met wins, so 0 reports scores 0. Cities realistically
+# yield 0-5 reports in a 7-day window, so these bands are sized for that range.
+# config.yaml (``thresholds.evidence_density``) overrides this fallback.
+DEFAULT_EVIDENCE_DENSITY = (
+    {"min_reports": 5, "points": 55},
+    {"min_reports": 3, "points": 40},
+    {"min_reports": 2, "points": 30},
+    {"min_reports": 1, "points": 20},
+)
+
+DEFAULT_CITY_LOOKBACK_HOURS = 168
+
 
 def default_config() -> dict:
     return {
@@ -140,12 +153,11 @@ def default_config() -> dict:
             ],
         },
         "thresholds": {
-            "news_high": 10,
-            "news_medium": 5,
             "sentiment_high": 0.6,
             "sentiment_medium": 0.3,
             "temp_high": 35.0,
             "rain_high": 50.0,
+            "evidence_density": [dict(band) for band in DEFAULT_EVIDENCE_DENSITY],
         },
         "groq": {
             "model": "openai/gpt-oss-120b",
@@ -282,6 +294,15 @@ def lookback_label(lookback_hours: int) -> str:
     return f"{hours}h"
 
 
+def window_label(hours: int) -> str:
+    """Human window label for user-facing text: ``168`` -> ``7 days``, ``24`` -> ``1 day``."""
+    hours = int(hours or 0)
+    if hours and hours % 24 == 0:
+        days = hours // 24
+        return f"{days} day" + ("" if days == 1 else "s")
+    return f"{hours} hours"
+
+
 async def fetch_news(
     session: aiohttp.ClientSession,
     keyword: str,
@@ -346,6 +367,100 @@ async def gather_weather(
         again = await asyncio.gather(*[fetcher(session, cities[i]) for i in failed])
         for i, r in zip(failed, again):
             results[i] = r
+    return results
+
+
+# Per-city news is the only evidence a card may cite, so it must not vanish to
+# one throttled query. Ten minutes of cache outlives the 5-minute grid cache, so
+# a burst of concurrent queries is absorbed here instead of at Google's door.
+CITY_NEWS_CACHE_TTL_S = 600
+CITY_NEWS_MAX_STALE_S = 3600
+CITY_NEWS_ATTEMPTS = 2
+CITY_NEWS_RETRY_DELAY_S = 1.0
+
+_CITY_NEWS_CACHE: dict[tuple[str, str], dict] = {}
+
+
+def city_news_cache_key(city: str, disease: str) -> tuple[str, str]:
+    """Cache identity for one city's evidence for one disease."""
+    return (str(city or "").strip().lower(), str(disease or "").strip().lower())
+
+
+def clear_city_news_cache() -> None:
+    """Drop every cached city-news entry (tests, and an operator force-refresh)."""
+    _CITY_NEWS_CACHE.clear()
+
+
+async def gather_city_news(
+    session,
+    cities: list,
+    fetcher,
+    keyword: str,
+    hours: int,
+    disease: str,
+    attempts: int = CITY_NEWS_ATTEMPTS,
+    delay: float = CITY_NEWS_RETRY_DELAY_S,
+    now: float | None = None,
+) -> list[list[dict]]:
+    """One city-scoped news query per city, with a retry and a short cache.
+
+    ``fetcher(session, keyword, hours, city=name)`` returns the items for that
+    city. An empty result is treated as a failed request (Google News answers a
+    concurrent burst with HTTP 429 and no items), so it is retried once. A card
+    that had evidence minutes ago is never blanked by that: the 10-minute cache
+    answers first, and a still-empty refetch falls back to an entry at most an
+    hour old. Every city logs ``news city=<name> items=<n> retried=<bool>`` so a
+    blank card can be traced to the query that produced it.
+    """
+    clock = time.monotonic() if now is None else now
+    keys = [city_news_cache_key(c.get("name"), disease) for c in cities]
+    results: list = [None] * len(cities)
+
+    pending = []
+    for i, key in enumerate(keys):
+        entry = _CITY_NEWS_CACHE.get(key)
+        if entry and clock - entry["at"] <= CITY_NEWS_CACHE_TTL_S:
+            results[i] = entry["items"]
+        else:
+            pending.append(i)
+
+    retried = {i: False for i in pending}
+
+    if pending:
+        fetched = await asyncio.gather(*[
+            fetcher(session, keyword, hours, city=cities[i].get("name")) for i in pending
+        ])
+        for i, items in zip(pending, fetched):
+            results[i] = list(items or [])
+
+        for _ in range(1, attempts):
+            empty = [i for i in pending if not results[i]]
+            if not empty:
+                break
+            if delay:
+                await asyncio.sleep(delay)
+            again = await asyncio.gather(*[
+                fetcher(session, keyword, hours, city=cities[i].get("name")) for i in empty
+            ])
+            for i, items in zip(empty, again):
+                retried[i] = True
+                if items:
+                    results[i] = list(items)
+
+        clock = time.monotonic() if now is None else now
+        for i in pending:
+            if results[i]:
+                _CITY_NEWS_CACHE[keys[i]] = {"at": clock, "items": results[i]}
+                continue
+            stale = _CITY_NEWS_CACHE.get(keys[i])
+            if stale and clock - stale["at"] <= CITY_NEWS_MAX_STALE_S:
+                results[i] = stale["items"]
+
+    for i, city in enumerate(cities):
+        print(
+            f"news city={city.get('name')} items={len(results[i])} "
+            f"retried={str(bool(retried.get(i))).lower()}"
+        )
     return results
 
 
@@ -447,25 +562,54 @@ def simple_sentiment(text: str) -> float:
 # ── Rule-Based Risk (Fallback) ────────────────────────────────────────
 
 
-def rule_based_risk(
-    news_count: int, weather: dict, sentiment: float, thresholds: dict
-) -> dict:
-    """Fallback risk scoring when Groq is unavailable.
+# Score floor -> level. The lowest band's floor minus one is the most a card
+# without city evidence may score, so score and level can never disagree.
+LEVEL_BANDS = ((70, "CRITICAL"), (50, "HIGH"), (30, "MODERATE"))
+LOW_CEILING = min(floor for floor, _ in LEVEL_BANDS) - 1
 
-    ``news_count`` must be the CITY-SPECIFIC report count. Zero local reports
-    means there is no evidence for this city: the pooled sentiment score is
-    ignored, confidence is capped at 0.55, and benign weather forces LOW.
+
+def evidence_points(news_count: int, thresholds: dict) -> int:
+    """Score credit for city-specific report density, read from the config bands.
+
+    Bands are ``{"min_reports", "points"}`` pairs; the densest one whose floor
+    is met wins, so a city with no reports scores nothing. ``min_reports`` is
+    read as a number and the bands are ordered here rather than trusting the
+    order they were written in ``config.yaml``.
+    """
+    bands = thresholds.get("evidence_density") or DEFAULT_EVIDENCE_DENSITY
+    for band in sorted(bands, key=lambda b: int(b["min_reports"]), reverse=True):
+        if news_count >= int(band["min_reports"]):
+            return int(band["points"])
+    return 0
+
+
+def rule_based_risk(
+    news_count: int,
+    weather: dict,
+    sentiment: float,
+    thresholds: dict,
+    *,
+    window_hours: int = DEFAULT_CITY_LOOKBACK_HOURS,
+) -> dict:
+    """Score a city from signals alone — no model, identical on every call.
+
+    ``news_count`` must be the CITY-SPECIFIC report count over ``window_hours``
+    (the per-city query window, default 7 days). Zero local reports means there
+    is no evidence for this city: source-free weather can never lift the card
+    above LOW, confidence is capped at 0.55, and the card says so in words.
     """
     score = 0
     drivers = []
     local_reports = news_count > 0
+    window = window_label(window_hours)
 
-    if news_count >= thresholds["news_high"]:
-        score += 40
-        drivers.append({"kind": "news", "text": f"News uptick: {news_count} articles in 24h"})
-    elif news_count >= thresholds["news_medium"]:
-        score += 20
-        drivers.append({"kind": "news", "text": f"Moderate news: {news_count} articles in 24h"})
+    if local_reports:
+        score += evidence_points(news_count, thresholds)
+        noun = "report" if news_count == 1 else "reports"
+        drivers.append({
+            "kind": "news",
+            "text": f"{news_count} city-specific {noun} in {window}",
+        })
 
     forecast = weather.get("forecast", [])
     if forecast:
@@ -486,24 +630,21 @@ def rule_based_risk(
             score += 10
             drivers.append({"kind": "social", "text": f"Moderate concern: {sentiment:.2f}"})
     else:
+        # Weather alone is not outbreak evidence. Cap the score inside the LOW
+        # band so the label and the number agree, and state the gap in words.
+        score = min(score, LOW_CEILING)
         drivers.insert(0, {"kind": "model", "text": "no city-specific outbreak signal"})
 
-    if score >= 70:
-        risk_level = "CRITICAL"
-    elif score >= 50:
-        risk_level = "HIGH"
-    elif score >= 30:
-        risk_level = "MODERATE"
-    else:
-        risk_level = "LOW"
+    score = min(score, 100)
+    risk_level = "LOW"
+    for floor, label in LEVEL_BANDS:
+        if score >= floor:
+            risk_level = label
+            break
 
     confidence = min(0.95, 0.4 + score / 100)
     if not local_reports:
-        # A weather-only read is not outbreak evidence, and pooled news from
-        # other cities must never inflate it.
         confidence = min(confidence, 0.55)
-        if score < 30:
-            risk_level = "LOW"
 
     return {
         "risk_level": risk_level,

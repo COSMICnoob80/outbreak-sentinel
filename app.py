@@ -23,7 +23,9 @@ from urllib.parse import urlsplit
 from outbreak_sentinel import (
     _extract_json,
     city_query_phrase,
+    clear_city_news_cache,
     default_config,
+    gather_city_news,
     gather_weather,
     iso_published,
     llm_chat,
@@ -31,9 +33,11 @@ from outbreak_sentinel import (
     load_env_file,
     lookback_label,
     rss_outlet,
+    rule_based_risk,
     title_matches_topic,
     title_mentions_city,
     topic_terms_for,
+    window_label,
 )
 
 app = FastAPI(title="Outbreak Sentinel", version="1.0.0")
@@ -118,56 +122,22 @@ def sentiment_score(text):
     score = (sum(1 for w in PANIC_WORDS if w in t) * 2 + sum(1 for w in FEAR_WORDS if w in t) - sum(1 for w in HOPE_WORDS if w in t) * 0.5) / 10
     return max(0.0, min(1.0, score))
 
-def rule_based_risk(news_count, weather, sent, thresholds):
-    """Rule fallback. `news_count` must be CITY-SPECIFIC: zero local reports
-    means no outbreak evidence for this city, so pooled sentiment is ignored,
-    confidence is capped at 0.55, and benign weather forces LOW."""
-    score = 0
-    drivers = []
-    local_reports = news_count > 0
-    window = _window_label(CONFIG.get("city_lookback_hours", CONFIG.get("lookback_hours", 24)))
-    if news_count >= thresholds["news_high"]:
-        score += 40; drivers.append({"kind": "news", "text": f"News uptick: {news_count} articles in {window}"})
-    elif news_count >= thresholds["news_medium"]:
-        score += 20; drivers.append({"kind": "news", "text": f"Moderate news: {news_count} articles in {window}"})
-    forecast = weather.get("forecast", [])
-    if forecast:
-        max_rain = max((d.get("precipitation") or 0) for d in forecast)
-        max_temp = max((d.get("temp_max") or 0) for d in forecast)
-        if max_rain >= thresholds["rain_high"]:
-            score += 20; drivers.append({"kind": "weather", "text": f"Heavy rain forecast: {max_rain:.1f}mm"})
-        if max_temp >= thresholds["temp_high"]:
-            score += 15; drivers.append({"kind": "weather", "text": f"High temperature: {max_temp:.1f}°C"})
-    if local_reports:
-        if sent >= thresholds["sentiment_high"]:
-            score += 25; drivers.append({"kind": "social", "text": f"High panic sentiment: {sent:.2f}"})
-        elif sent >= thresholds["sentiment_medium"]:
-            score += 10; drivers.append({"kind": "social", "text": f"Moderate concern: {sent:.2f}"})
-    else:
-        drivers.insert(0, {"kind": "model", "text": "no city-specific outbreak signal"})
-    if score >= 70: level = "CRITICAL"
-    elif score >= 50: level = "HIGH"
-    elif score >= 30: level = "MODERATE"
-    else: level = "LOW"
-    confidence = min(0.95, 0.4 + score/100)
-    if not local_reports:
-        confidence = min(confidence, 0.55)
-        if score < 30:
-            level = "LOW"
-    return {"risk_level": level, "score": score, "confidence": round(confidence, 2), "drivers": drivers}
-
-async def collect_signals():
+async def collect_signals(disease: str = "dengue"):
     hours = CONFIG["lookback_hours"]
     city_hours = CONFIG.get("city_lookback_hours", hours)
-    outbreak_query = " OR ".join(list(CONFIG["diseases"]) + ["outbreak"])
+    # One disease per query: asking for every disease at once is what Google
+    # News throttles under the per-city burst, and the cache is per disease.
+    outbreak_query = f"{str(disease or '').strip()} OR outbreak"
     async with aiohttp.ClientSession() as session:
         # Shared diagnostic pool — never evidence for a specific city.
         news = await asyncio.gather(*[fetch_news(session, kw, hours) for kw in CONFIG["news_keywords"]])
         # City-scoped news: one query per city, tagged with that city. Wider
-        # window (default 7 days) so real city stories are not cut off.
-        city_news = await asyncio.gather(*[
-            fetch_news(session, outbreak_query, city_hours, city=c["name"]) for c in CONFIG["cities"]
-        ])
+        # window (default 7 days) so real city stories are not cut off; the
+        # fetch retries once and caches for 10 minutes so one throttled query
+        # cannot blank a card that had evidence minutes earlier.
+        city_news = await gather_city_news(
+            session, CONFIG["cities"], fetch_news, outbreak_query, city_hours, disease
+        )
         weather = await gather_weather(session, CONFIG["cities"], fetch_weather)
         social = await asyncio.gather(*[fetch_news(session, kw, 24) for kw in CONFIG["social_keywords"]])
     all_news = [a for sub in news for a in sub]
@@ -316,14 +286,6 @@ def _source_view(item: dict) -> dict:
     }
 
 
-def _window_label(hours: int) -> str:
-    hours = int(hours or 0)
-    if hours and hours % 24 == 0:
-        days = hours // 24
-        return f"{days} day" + ("" if days == 1 else "s")
-    return f"{hours} hours"
-
-
 def display_disease(disease: str) -> str:
     """Authoritative display label for the caller's disease (``dengue`` → ``Dengue``).
 
@@ -337,7 +299,7 @@ def display_disease(disease: str) -> str:
 
 def deterministic_summary(card: dict) -> str:
     """Plain prose built only from the card's own facts — the narrator fallback."""
-    window = _window_label(CONFIG.get("city_lookback_hours", CONFIG.get("lookback_hours", 24)))
+    window = window_label(CONFIG.get("city_lookback_hours", CONFIG.get("lookback_hours", 24)))
     reports = len(card.get("sources") or [])
     return (
         f"{card.get('city', 'Unknown')} shows {card.get('risk_level', 'LOW')} risk for "
@@ -363,7 +325,7 @@ def _latest_date_label(items: list) -> str:
 
 def _evidence_line(sources: list, disease: str) -> str:
     """Plain-language coverage line that counts exactly the links rendered."""
-    window = _window_label(CONFIG.get("city_lookback_hours", CONFIG["lookback_hours"]))
+    window = window_label(CONFIG.get("city_lookback_hours", CONFIG["lookback_hours"]))
     label = str(disease or "outbreak").strip().lower()
     count = len(sources)
     if count:
@@ -464,6 +426,25 @@ def _build_feed(cards: list, now: datetime, disease: str = "") -> list[dict]:
     return rows
 
 
+def _distinct_city_news(news: list, city: str, disease: str,
+                        limit: int | None = None) -> list[dict]:
+    """City-named, disease-relevant items with repeat coverage collapsed.
+
+    The same story carried by two outlets is one report, not two, so this is the
+    only count the score, the drivers and the rendered sources may use.
+    """
+    seen, picked = set(), []
+    for item in _city_topic_news(news, city, disease):
+        key = _normalise_title(item.get("title") or "") or (item.get("link") or "")
+        if key in seen:
+            continue
+        seen.add(key)
+        picked.append(item)
+        if limit is not None and len(picked) >= limit:
+            break
+    return picked
+
+
 def _pick_sources(news: list, city: str, disease: str, limit: int = 5,
                   context: list | None = None) -> list[dict]:
     """Sources that name THIS city AND match the queried disease.
@@ -472,15 +453,7 @@ def _pick_sources(news: list, city: str, disease: str, limit: int = 5,
     never counts. `context` is opt-in and capped at one item, explicitly
     labelled as not evidence for this city. Default is no context at all.
     """
-    seen, picked = set(), []
-    for n in _city_topic_news(news, city, disease):
-        key = _normalise_title(n.get("title") or "") or (n.get("link") or "")
-        if key in seen:
-            continue
-        seen.add(key)
-        picked.append(_source_view(n))
-        if len(picked) >= limit:
-            break
+    picked = [_source_view(n) for n in _distinct_city_news(news, city, disease, limit)]
     if not picked and context:
         item = next((c for c in context if isinstance(c, dict) and c.get("title")), None)
         if item:
@@ -649,10 +622,16 @@ def _build_deterministic_cards(news, weather, social, sent, disease, city=None):
         if not name or (target and name.lower() != target):
             continue
         city_weather = weather_map.get(name.lower()) or {"city": name}
-        city_news = _city_topic_news(news, name, disease)
+        # Same deduped set the card will render, so the driver's number, the
+        # evidence line and the links can never disagree.
+        city_news = _distinct_city_news(news, name, disease)
         city_sentiment = sentiment_score(" ".join(n.get("title", "") for n in city_news))
         base = rule_based_risk(
-            len(city_news), city_weather, city_sentiment, CONFIG["thresholds"]
+            len(city_news),
+            city_weather,
+            city_sentiment,
+            CONFIG["thresholds"],
+            window_hours=CONFIG.get("city_lookback_hours", CONFIG["lookback_hours"]),
         )
         card = _norm_card(base, disease, city_weather)
         card["city"] = name
@@ -841,7 +820,9 @@ def _risk_cache_read(key: tuple):
 async def _build_risk(city: Optional[str], disease: str) -> dict:
     """One live grid build: collect signals, build factual cards, then narrate."""
     try:
-        news, weather, social, sent = await asyncio.wait_for(collect_signals(), timeout=30)
+        news, weather, social, sent = await asyncio.wait_for(
+            collect_signals(disease), timeout=30
+        )
     except asyncio.TimeoutError:
         raise HTTPException(status_code=504, detail="Signal collection timed out")
 
@@ -885,6 +866,10 @@ async def get_risk(city: Optional[str] = None, disease: str = "dengue", refresh:
         if hit:
             payload, age = hit
             return {**payload, "cached": True, "cache_age_s": age}
+    else:
+        # A forced refresh must re-query: replaying cached news would make the
+        # answer identical to the one being refreshed away.
+        clear_city_news_cache()
 
     payload = await _build_risk(city, disease)
     _RISK_CACHE[key] = {"at": time.monotonic(), "payload": payload}
@@ -1096,7 +1081,9 @@ async def telegraph_risk(req: TelegraphRiskRequest):
     risk_card = None
     engine = None
     try:
-        news, weather, social, sent = await asyncio.wait_for(collect_signals(), timeout=30)
+        news, weather, social, sent = await asyncio.wait_for(
+            collect_signals(req.disease), timeout=30
+        )
         weather_map = _weather_by_city(weather)
         cards, engine = _build_deterministic_cards(
             news, weather, social, sent, req.disease, req.city

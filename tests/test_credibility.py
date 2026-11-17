@@ -35,7 +35,7 @@ def _weather():
     }]
 
 
-async def _fake_collect_signals():
+async def _fake_collect_signals(disease="dengue"):
     return _news(), _weather(), [], 0.4
 
 

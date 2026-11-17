@@ -45,7 +45,7 @@ class FakeClient:
         }
 
 
-async def _fake_collect_signals():
+async def _fake_collect_signals(disease="dengue"):
     return [], [], [], 0.0
 
 

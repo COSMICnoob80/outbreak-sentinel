@@ -167,8 +167,19 @@ topic_terms:
 
 # Risk thresholds for rule-based scoring (used as fallback)
 thresholds:
-  news_high: 10        # articles in lookback window
-  news_medium: 5
+  # Score credit per city-specific report count, measured over
+  # city_lookback_hours (7 days) — not the shared 24h news pool. The densest
+  # band whose min_reports is met wins, so 0 reports scores 0. Order here does
+  # not matter; the code sorts by min_reports.
+  evidence_density:
+    - min_reports: 5
+      points: 55
+    - min_reports: 3
+      points: 40
+    - min_reports: 2
+      points: 30
+    - min_reports: 1
+      points: 20
   sentiment_high: 0.6  # 0-1 panic score
   sentiment_medium: 0.3
   temp_high: 35.0      # °C

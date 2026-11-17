@@ -32,7 +32,7 @@ def _weather_all():
     ]
 
 
-async def _signals():
+async def _signals(disease="dengue"):
     return [KARACHI_DENGUE, LAHORE_DENGUE], _weather_all(), [], 0.2
 
 
