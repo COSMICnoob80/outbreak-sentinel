@@ -1004,3 +1004,11 @@ any city; (2) `_pick_sources` appended disease-only matches even when the headli
 - `tests/test_render_blueprint.py` (3 tests) parses the blueprint with the project's PyYAML: single web/python service, `healthCheckPath == "/health"`, both secrets `sync: false` with no `value`, no `GROQ_API_KEY`. `pytest` → **73 passed**.
 - Not verified (needs the dashboard / a live service): Render's acceptance of `runtime: python` + `region: singapore` for a free instance, the actual blueprint Apply flow, and the real wake/cold-start timings. `deploy/README.md` still documents the old manual Render path — left alone (out of scope).
 - Commit `4f2cefc` pushed; work-order file `.beat/wo-soldier-u.md` deleted.
+
+## 2026-11-17 — Soldier V
+
+- Feed rows now print confidence as a percent (`confidence 70%`), matching the card format; the API payload is unchanged.
+- Every forecast strip is captioned `rain forecast · 7d` (demo keeps `7d`). When all seven values are 0 the flat SVG is replaced with `no rain forecast` in both the expanded detail and the card footer; the strip is kept whenever any value is > 0.
+- Quiet provenance line under the risk-cards panel: `Score 0–100 = city-specific reports in 7 days + rain + heat + concern. No reports caps the card at LOW. Weather: Open-Meteo. News: Google News RSS, last 7 days.` Components checked against `rule_based_risk` (7-day `evidence_density`, rain, heat, sentiment/concern) and the real sources in `app.py`.
+- Non-Pakistan section label renamed `GLOBAL` → `OTHER CITIES`; `cardRegion` grouping and subheading behaviour are unchanged.
+- Verified live on 8019: feed `confidence 70%`; strips `rain forecast · 7d`; zero-rain text `no rain forecast`; footnote rendered exactly; sections `PAKISTAN` / `OTHER CITIES`. `pytest` → **73 passed**. Browser closed, server killed. Commit `5fc834f` pushed; work-order file `.beat/wo-soldier-v.md` deleted.
