@@ -172,7 +172,7 @@ class RiskResponse(BaseModel):
     risk_cards: list[RiskCard]
     feed: Optional[list[dict]] = None        # one deduped row per story, real dates
     feed_refreshed: Optional[str] = None     # batch clock, shown once at the top
-    engine: Optional[str] = None  # "llm" | "rule-based" — honest about path taken
+    engine: Optional[str] = None  # "deterministic+narrator" | "deterministic" — which path ran
     cached: bool = False          # served from the 5-minute in-memory grid cache
     cache_age_s: Optional[int] = None
 
