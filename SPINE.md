@@ -995,3 +995,12 @@ any city; (2) `_pick_sources` appended disease-only matches even when the headli
 - Footer reads `GET /intel/llm` once per page load: `ok:true` → `fusion: <provider> · <model>`; otherwise `fusion: deterministic (narrator unavailable)`. The hardcoded `Groq (free tier)` string is gone; no provider is named in source.
 - `tests/test_dashboard_score.py` asserts the dashboard source contains neither `var TL=` nor `Groq (free tier)`.
 - Verified: `pytest` **70 passed**; live 8018 `document.querySelector('.timeline').innerText` = `SIGNAL TIMELINE / city-specific reports · last 7 days / 11 Nov / 12 Nov / 13 Nov / 14 Nov / 15 Nov / 16 Nov / 17 Nov / 4 reports across 2 cities · latest 17 Nov`; footer = `fusion: commandcode · z-ai/glm-5.3-flash`. Browser closed, server killed. Risk cards, scoring, narrator contract, caches, feed untouched. Fix commit `12f9b00` pushed.
+
+## 2026-11-17 — Soldier U
+
+- `render.yaml` at repo root: one `type: web` / `runtime: python` service, `plan: free`, `region: singapore`, `branch: main`, `buildCommand: pip install -r requirements.txt`, `startCommand: uvicorn app:app --host 0.0.0.0 --port $PORT`, `healthCheckPath: /health`, `autoDeploy: true`.
+- Env: `PYTHON_VERSION=3.12.7`, `LLM_MODEL=z-ai/glm-5.3-flash`, `TELEGRAPH_SETTLEMENT_MODE=live`; `CMDC_API_KEY` and `TELEGRAPH_EVM_PRIVATE_KEY` are `sync: false` (Render prompts, nothing in git). `GROQ_API_KEY` intentionally absent — that provider 403s on this account.
+- `docs/DEPLOY-RENDER.md` (57 lines, plain English): the two secrets and where to copy them (`~/.commandcode/auth.json` → `apiKey`; local `.env` → `TELEGRAPH_EVM_PRIVATE_KEY`), New → Blueprint → `COSMICnoob80/outbreak-sentinel` → Apply, the free-tier sleep (~15 min idle, ~50 s wake, up to ~30 s model call on first load, 5-minute result cache), and the curl checks against `/health` + `/intel/llm` (`provider: null` ⇒ missing `CMDC_API_KEY`).
+- `tests/test_render_blueprint.py` (3 tests) parses the blueprint with the project's PyYAML: single web/python service, `healthCheckPath == "/health"`, both secrets `sync: false` with no `value`, no `GROQ_API_KEY`. `pytest` → **73 passed**.
+- Not verified (needs the dashboard / a live service): Render's acceptance of `runtime: python` + `region: singapore` for a free instance, the actual blueprint Apply flow, and the real wake/cold-start timings. `deploy/README.md` still documents the old manual Render path — left alone (out of scope).
+- Commit `4f2cefc` pushed; work-order file `.beat/wo-soldier-u.md` deleted.
