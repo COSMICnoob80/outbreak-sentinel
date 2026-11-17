@@ -9,7 +9,7 @@ stored in this repo.
 
 | Secret name | Where you copy the value from |
 |---|---|
-| `CMDC_API_KEY` | Open `~/.commandcode/auth.json` on your own machine and copy the text after `"apiKey":` (just the value, without the quotes). This is what lets the app call the language model. |
+| `CMDC_API_KEY` | Open `~/.commandcode/auth.json` on your own machine and copy the text after `"apiKey":` (just the value, without the quotes). This is what lets the app call the language model (`tencent/hy4-flash`, set by `LLM_MODEL`). |
 | `TELEGRAPH_EVM_PRIVATE_KEY` | Open the `.env` file in this project folder and copy the value after `TELEGRAPH_EVM_PRIVATE_KEY=`. This is the Base Sepolia test wallet key. |
 
 Paste each one into Render's dashboard when it asks (or under the service's

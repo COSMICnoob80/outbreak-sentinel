@@ -66,7 +66,7 @@ Edit `config.yaml` to customize:
 - Diseases to track
 - News/social keywords
 - Risk thresholds
-- LLM model id (`LLM_MODEL`, default `z-ai/glm-5.3-flash`)
+- LLM model id (`LLM_MODEL`, default `tencent/hy4-flash`)
 
 ### 3. Set API Key (Optional but Recommended)
 
@@ -77,7 +77,7 @@ CMDC_API_KEY=your_cmdc_api_key
 ```
 
 The LLM provider is the **Command Code provider API** — OpenAI-compatible at
-`https://api.commandcode.ai/provider/v1`, model `z-ai/glm-5.3-flash`, key read from
+`https://api.commandcode.ai/provider/v1`, model `tencent/hy4-flash`, key read from
 `CMDC_API_KEY`. Confirm it is live:
 
 ```bash

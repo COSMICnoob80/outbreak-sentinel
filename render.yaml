@@ -15,7 +15,7 @@ services:
       - key: CMDC_API_KEY
         sync: false
       - key: LLM_MODEL
-        value: z-ai/glm-5.3-flash
+        value: tencent/hy4-flash
       - key: TELEGRAPH_SETTLEMENT_MODE
         value: live
       - key: TELEGRAPH_EVM_PRIVATE_KEY

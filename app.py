@@ -733,56 +733,81 @@ def _narrator_violation(payload, card: dict, disease: str) -> str | None:
     return None
 
 
-async def _narrate_one(card: dict, disease: str) -> dict | None:
-    """One bounded narrator call. ``None`` means: keep the deterministic prose."""
+def _narrator_max_tokens() -> int:
+    """Token budget for one narration; reasoning models need room for both phases."""
+    try:
+        value = int((CONFIG.get("narrator") or {}).get("max_tokens") or 320)
+    except (TypeError, ValueError):
+        value = 320
+    return value
+
+
+async def _narrate_one(card: dict, disease: str) -> dict:
+    """One bounded narrator call. ``payload`` is ``None`` when prose is discarded."""
     result = await llm_chat(
         [{"role": "user", "content": _narrator_prompt(card)}],
         config=CONFIG,
-        max_tokens=320,
+        max_tokens=_narrator_max_tokens(),
         temperature=0.2,
     )
+    try:
+        tokens = int(result.get("tokens") or 0)
+    except (TypeError, ValueError):
+        tokens = 0
     if not result.get("ok") or not result.get("content"):
-        return None
+        return {"payload": None, "tokens": tokens}
     payload = _extract_json(result["content"])
     violation = _narrator_violation(payload, card, disease)
     if violation:
         print(f"narrator discarded city={card.get('city')} reason={violation}")
-        return None
-    return payload
+        return {"payload": None, "tokens": tokens}
+    return {"payload": payload, "tokens": tokens}
 
 
 async def narrate_cards(cards: list, disease: str) -> tuple[list, int]:
     """Rewrite each sourced card's prose. Facts never change; level moves ≤ 1 step."""
-    if not narrator_enabled() or llm_provider(CONFIG) is None:
-        return cards, 0
-    targets = [card for card in cards if card.get("sources")]
-    if not targets:
-        return cards, 0
-    try:
-        results = await asyncio.wait_for(
-            asyncio.gather(*[_narrate_one(card, disease) for card in targets]),
-            timeout=_NARRATOR_TIMEOUT_S,
-        )
-    except asyncio.TimeoutError:
-        print("narrator timed out; keeping deterministic prose")
-        return cards, 0
+    enabled = narrator_enabled() and llm_provider(CONFIG) is not None
+    targets = (
+        [card for card in cards if int(card.get("evidence_count") or 0) >= 1]
+        if enabled
+        else []
+    )
+    results = {}
+    if targets:
+        try:
+            gathered = await asyncio.wait_for(
+                asyncio.gather(*[_narrate_one(card, disease) for card in targets]),
+                timeout=_NARRATOR_TIMEOUT_S,
+            )
+        except asyncio.TimeoutError:
+            print("narrator timed out; keeping deterministic prose")
+            gathered = [{"payload": None, "tokens": 0} for _ in targets]
+        results = {id(card): outcome for card, outcome in zip(targets, gathered)}
 
     narrated = 0
-    for card, payload in zip(targets, results):
-        if not payload:
-            continue
-        card["summary"] = _sentence_trim(payload["summary"])
-        recommendation = str(payload.get("recommendation") or "").strip()
-        if recommendation:
-            card["recommendation"] = recommendation
-        level = str(payload.get("risk_level") or "").strip().upper()
-        if level and level != card.get("risk_level"):
-            print(
-                f"narrator level change city={card.get('city')} "
-                f"{card.get('risk_level')}->{level}"
-            )
-            card["risk_level"] = level
-        narrated += 1
+    for card in cards:
+        evidence = int(card.get("evidence_count") or 0)
+        called = enabled and evidence >= 1
+        outcome = results.get(id(card)) or {"payload": None, "tokens": 0}
+        payload = outcome.get("payload")
+        if payload:
+            card["summary"] = _sentence_trim(payload["summary"])
+            recommendation = str(payload.get("recommendation") or "").strip()
+            if recommendation:
+                card["recommendation"] = recommendation
+            level = str(payload.get("risk_level") or "").strip().upper()
+            if level and level != card.get("risk_level"):
+                print(
+                    f"narrator level change city={card.get('city')} "
+                    f"{card.get('risk_level')}->{level}"
+                )
+                card["risk_level"] = level
+            narrated += 1
+        print(
+            f"narrate city={card.get('city')} evidence={evidence} "
+            f"called={str(called).lower()} ok={str(bool(payload)).lower()} "
+            f"tokens={outcome.get('tokens') or 0}"
+        )
     return cards, narrated
 
 

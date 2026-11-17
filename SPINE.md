@@ -1012,3 +1012,14 @@ any city; (2) `_pick_sources` appended disease-only matches even when the headli
 - Quiet provenance line under the risk-cards panel: `Score 0–100 = city-specific reports in 7 days + rain + heat + concern. No reports caps the card at LOW. Weather: Open-Meteo. News: Google News RSS, last 7 days.` Components checked against `rule_based_risk` (7-day `evidence_density`, rain, heat, sentiment/concern) and the real sources in `app.py`.
 - Non-Pakistan section label renamed `GLOBAL` → `OTHER CITIES`; `cardRegion` grouping and subheading behaviour are unchanged.
 - Verified live on 8019: feed `confidence 70%`; strips `rain forecast · 7d`; zero-rain text `no rain forecast`; footnote rendered exactly; sections `PAKISTAN` / `OTHER CITIES`. `pytest` → **73 passed**. Browser closed, server killed. Commit `5fc834f` pushed; work-order file `.beat/wo-soldier-v.md` deleted.
+
+## 2026-11-17 — Soldier Y
+
+### Narrator now works on a reasoning model + only narrates cards with evidence
+- **Token cap configurable.** `config.yaml` gained `narrator.max_tokens`, read by `app._narrator_max_tokens()` (320 fallback if absent). Provider-reported `total_tokens` is now returned by `outbreak_sentinel.llm_chat()` as `tokens`.
+- **Measured on `tencent/hy4-flash` (live Karachi prompt, source lines included):** caps 900 and 1200 were fully consumed by `reasoning` and returned **empty `content`** (~1604–1904 total tokens) — so the parent's 900 measurement did **not** hold once source lines were in the prompt, and even 2000 failed on live calls. Cap settled at **3000** (2600 was the measured success floor; billed tokens are the reported total, not the cap).
+- **Only evidence-bearing cards are sent.** `narrate_cards()` targets `evidence_count >= 1`; zero-evidence cities make **no** LLM call. One log line per card: `narrate city=<name> evidence=<n> called=<bool> ok=<bool> tokens=<n>`.
+- **Engine honesty preserved.** `engine` stays `deterministic+narrator` only when ≥1 narration is accepted, else `deterministic`.
+- **Deploy config in step.** `render.yaml` `LLM_MODEL` = `tencent/hy4-flash`; `README.md` and `docs/DEPLOY-RENDER.md` name the same model; `COMMANDCODE_DEFAULT_MODEL` aligned to `tencent/hy4-flash`.
+- **Tests:** `env -u PYTHONPATH .venv/bin/python -m pytest -q` → **76 passed** (3 new: zero-evidence makes no call, empty content keeps deterministic prose, engine flag flips only on acceptance).
+- **Live probe on 8020 (`/risk?disease=dengue&refresh=1`):** `engine=deterministic+narrator`; Karachi summary became prose ("The Express Tribune reported that Karachi outpaced the rest of Sindh in Dengue cases…"); log showed `Karachi evidence=2 called=true ok=true tokens=2479`, `Lahore evidence=2 called=true ok=true tokens=2329`, and every zero-evidence city `called=false tokens=0`. Server killed after.

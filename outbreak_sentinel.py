@@ -675,7 +675,7 @@ def _extract_json(text: str) -> Any:
 
 LLM_TIMEOUT_SECONDS = 60
 COMMANDCODE_BASE_URL = "https://api.commandcode.ai/provider/v1"
-COMMANDCODE_DEFAULT_MODEL = "z-ai/glm-5.3-flash"
+COMMANDCODE_DEFAULT_MODEL = "tencent/hy4-flash"
 GROQ_BASE_URL = "https://api.groq.com/openai/v1"
 
 
@@ -719,8 +719,9 @@ async def llm_chat(
 ) -> dict:
     """One OpenAI-compatible chat completion, bounded by a 60s timeout.
 
-    Returns ``{provider, model, ok, content, latency_ms, error}``. ``ok`` means
-    the provider answered with a completion — never that the content parsed.
+    Returns ``{provider, model, ok, content, latency_ms, tokens, error}``. ``ok``
+    means the provider answered with a completion — never that the content
+    parsed. ``tokens`` is the provider-reported total, or 0 when it reports none.
     A hung provider can never hang the request: the timeout forces ``ok=False``
     and the caller degrades to rule-based scoring.
     """
@@ -728,7 +729,8 @@ async def llm_chat(
     if not provider:
         return {
             "provider": None, "model": None, "ok": False,
-            "content": None, "latency_ms": 0, "error": "no llm provider configured",
+            "content": None, "latency_ms": 0, "tokens": 0,
+            "error": "no llm provider configured",
         }
 
     url = provider["base_url"].rstrip("/") + "/chat/completions"
@@ -747,7 +749,7 @@ async def llm_chat(
     }
 
     started = time.monotonic()
-    content, ok, error = None, False, None
+    content, ok, error, tokens = None, False, None, 0
     try:
         timeout = aiohttp.ClientTimeout(total=LLM_TIMEOUT_SECONDS)
         async with aiohttp.ClientSession(timeout=timeout) as session:
@@ -757,6 +759,10 @@ async def llm_chat(
                     error = f"HTTP {resp.status}"
                 else:
                     data = json.loads(body)
+                    try:
+                        tokens = int((data.get("usage") or {}).get("total_tokens") or 0)
+                    except (TypeError, ValueError):
+                        tokens = 0
                     choices = data.get("choices") or []
                     if choices:
                         ok = True
@@ -779,6 +785,7 @@ async def llm_chat(
         "ok": ok,
         "content": content,
         "latency_ms": latency_ms,
+        "tokens": tokens,
         "error": error,
     }
 

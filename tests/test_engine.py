@@ -239,3 +239,85 @@ def test_narrator_two_step_level_jump_is_discarded(monkeypatch):
     assert narrated == 0
     assert cards[0]["risk_level"] == "HIGH"
     assert cards[0]["summary"] == expected
+
+
+def _counting_narrator(monkeypatch, content, tokens=42):
+    monkeypatch.setenv("SENTINEL_NARRATOR", "1")
+    monkeypatch.setattr(
+        app_module,
+        "llm_provider",
+        lambda config=None: {
+            "name": "stub",
+            "model": "stub",
+            "base_url": "http://stub",
+            "api_key": "test",
+        },
+    )
+    calls = []
+
+    async def fake_llm(messages, config=None, max_tokens=0, temperature=0):
+        calls.append(max_tokens)
+        return {
+            "provider": "stub",
+            "model": "stub",
+            "ok": True,
+            "content": content,
+            "latency_ms": 1,
+            "tokens": tokens,
+            "error": None,
+        }
+
+    monkeypatch.setattr(app_module, "llm_chat", fake_llm)
+    return calls
+
+
+def _narrating_client(monkeypatch):
+    monkeypatch.setattr(app_module, "_RISK_CACHE", {})
+    monkeypatch.setattr(app_module, "collect_signals", _signals)
+    monkeypatch.setenv("SENTINEL_NARRATOR", "1")
+    return TestClient(app_module.app)
+
+
+def test_zero_evidence_card_makes_no_narrator_call(monkeypatch):
+    calls = _counting_narrator(
+        monkeypatch, '{"summary": "Local dengue reports are being monitored."}'
+    )
+    card = _narrated_card()
+    card["sources"] = []
+    card["evidence_count"] = 0
+    card["summary"] = app_module.deterministic_summary(card)
+    expected = card["summary"]
+
+    cards, narrated = asyncio.run(app_module.narrate_cards([card], "dengue"))
+
+    assert calls == []
+    assert narrated == 0
+    assert cards[0]["summary"] == expected
+
+
+def test_empty_narrator_content_keeps_deterministic_summary(monkeypatch):
+    calls = _counting_narrator(monkeypatch, "")
+    card = _narrated_card()
+    expected = card["summary"]
+
+    cards, narrated = asyncio.run(app_module.narrate_cards([card], "dengue"))
+
+    assert len(calls) == 1
+    assert narrated == 0
+    assert cards[0]["summary"] == expected
+
+
+def test_engine_marks_narrator_only_when_narration_is_accepted(monkeypatch):
+    _counting_narrator(
+        monkeypatch, '{"summary": "Local dengue reports are being monitored."}'
+    )
+    body = _narrating_client(monkeypatch).get(
+        "/risk", params={"disease": "dengue", "refresh": 1}
+    ).json()
+    assert body["engine"] == "deterministic+narrator"
+
+    _counting_narrator(monkeypatch, "")
+    body = _narrating_client(monkeypatch).get(
+        "/risk", params={"disease": "dengue", "refresh": 1}
+    ).json()
+    assert body["engine"] == "deterministic"
