@@ -9,7 +9,7 @@ stored in this repo.
 
 | Secret name | Where you copy the value from |
 |---|---|
-| `CMDC_API_KEY` | Open `~/.commandcode/auth.json` on your own machine and copy the text after `"apiKey":` (just the value, without the quotes). This is what lets the app call the language model (`tencent/hy4-flash`, set by `LLM_MODEL`). |
+| `CMDC_API_KEY` | Open `~/.commandcode/auth.json` on your own machine and copy the text after `"apiKey":` (just the value, without the quotes). This is what lets the app call the language model (`z-ai/glm-5.3-flash`, set by `LLM_MODEL`). |
 | `TELEGRAPH_EVM_PRIVATE_KEY` | Open the `.env` file in this project folder and copy the value after `TELEGRAPH_EVM_PRIVATE_KEY=`. This is the Base Sepolia test wallet key. |
 
 Paste each one into Render's dashboard when it asks (or under the service's
@@ -18,6 +18,21 @@ chat, and never put them in `render.yaml`.** If a secret is wrong or missing the
 starts — it just runs without the model, or without live settlement.
 
 Nothing else is needed. `GROQ_API_KEY` is deliberately not configured.
+
+## Choosing the model
+
+`LLM_MODEL` sets the model the narrator writes with. Three were measured on the same
+narration prompt through the real provider:
+
+| model | tokens per narration | latency | result |
+|---|---|---|---|
+| `tencent/hy4-flash` | 1909 (reasoning-heavy; needed a 2600+ cap to answer at all) | 9.1 s | works |
+| `z-ai/glm-5.3-flash` | 861 | 4.7 s | works |
+| `stealth/glyph-cluster:free` | 1220 | 8.3 s | works, free tier with a daily cap |
+
+The narrator runs only for cards that carry city-specific evidence, so a full refresh
+costs about two narrations; a reasoning model burns its whole budget thinking before it
+writes.
 
 ## The click path
 

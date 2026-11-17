@@ -675,7 +675,7 @@ def _extract_json(text: str) -> Any:
 
 LLM_TIMEOUT_SECONDS = 60
 COMMANDCODE_BASE_URL = "https://api.commandcode.ai/provider/v1"
-COMMANDCODE_DEFAULT_MODEL = "tencent/hy4-flash"
+COMMANDCODE_DEFAULT_MODEL = "z-ai/glm-5.3-flash"
 GROQ_BASE_URL = "https://api.groq.com/openai/v1"
 
 

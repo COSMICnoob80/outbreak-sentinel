@@ -191,6 +191,7 @@ narrator:
   # cap must clear both. hy4-flash's reasoning phase varies by prompt: 900,
   # 1200 and 2000 still returned empty content on live Karachi calls; 2600 did.
   # 3000 adds margin — billed tokens are the reported total, not the cap.
+  # A reasoning model needs a high ceiling; a non-reasoning model answers far below it.
   max_tokens: 3000
 
 # Groq LLM settings
