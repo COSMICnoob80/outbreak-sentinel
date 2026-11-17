@@ -1,0 +1,22 @@
+services:
+  - type: web
+    name: outbreak-sentinel
+    runtime: python
+    plan: free
+    region: singapore
+    branch: main
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.7
+      - key: CMDC_API_KEY
+        sync: false
+      - key: LLM_MODEL
+        value: z-ai/glm-5.3-flash
+      - key: TELEGRAPH_SETTLEMENT_MODE
+        value: live
+      - key: TELEGRAPH_EVM_PRIVATE_KEY
+        sync: false
