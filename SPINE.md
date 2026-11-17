@@ -946,3 +946,14 @@ any city; (2) `_pick_sources` appended disease-only matches even when the headli
   for Amsterdam.
 - `drivers` is empty for a city with 1–4 city-named reports (below `news_medium`); that is the
   existing threshold behaviour, not a regression.
+
+---
+
+## 2026-11-17 — Soldier N
+
+- Provider chain in `outbreak_sentinel.llm_provider()`: `CMDC_API_KEY` → commandcode (`z-ai/glm-5.3-flash`, `LLM_MODEL` override), else `GROQ_API_KEY` → Groq config model, else rule-based. 60s timeout; one `LLM provider=… model=… ok=… latency_ms=…` log line per call.
+- `GET /intel/llm` makes one real `max_tokens:16` completion; live at 8011 returned `{"provider":"commandcode","model":"z-ai/glm-5.3-flash","ok":true,"latency_ms":1979}`.
+- `city_lookback_hours: 168` used ONLY for per-city queries (shared pool stays 24h). `when:168h` returns 0 from Google News, so windows are emitted as `7d`.
+- Sources now carry `title/url/outlet/published`; console renders `Outlet · 12 Nov` links; `evidence_line` on every card. `_geography_gate`/`title_mentions_city` semantics untouched.
+- Fusion prompt listed monitored cities after the first run returned Florida/Dak Lak/Romblon; fused cards for unconfigured cities are dropped in `app._fuse_or_rule_based`.
+- Verified live 8011: Karachi `engine: llm`, HIGH 0.85, Express Tribune `2026-11-12`; Amsterdam LOW 0.4, 0 sources. `pytest` → 24 passed. Not done: browser render check, no Telegraph settlement run (no spend).

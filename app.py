@@ -17,12 +17,19 @@ from fastapi.responses import FileResponse, RedirectResponse
 from pydantic import BaseModel
 from receipts import ReceiptStore, make_receipt
 from publish import publish_cards
+from urllib.parse import urlsplit
+
 from outbreak_sentinel import (
     city_query_phrase,
     default_config,
-    fuse_with_groq,
+    fuse_with_llm,
     gather_weather,
+    iso_published,
+    llm_chat,
+    llm_provider,
     load_env_file,
+    lookback_label,
+    rss_outlet,
     title_mentions_city,
 )
 
@@ -53,7 +60,7 @@ async def fetch_news(session, keyword, hours, city=None):
     """Google News RSS. With `city`, the query is city-scoped and every item is
     tagged with that city; the untagged pool (city=None) is diagnostics only."""
     phrase = f"{city_query_phrase(city)} {keyword}" if city else keyword
-    q = f"{phrase} when:{hours}h"
+    q = f"{phrase} when:{lookback_label(hours)}"
     url = f"https://news.google.com/rss/search?q={q}&hl=en-US&gl=US&ceid=US:en"
     try:
         async with session.get(url, timeout=aiohttp.ClientTimeout(total=15)) as r:
@@ -61,7 +68,13 @@ async def fetch_news(session, keyword, hours, city=None):
                 return []
             feed = feedparser.parse(await r.text())
             return [
-                {"title": e.get("title", ""), "link": e.get("link", ""), "city": city}
+                {
+                    "title": e.get("title", ""),
+                    "link": e.get("link", ""),
+                    "published": iso_published(e),
+                    "outlet": rss_outlet(e) or (urlsplit(e.get("link", "")).hostname or ""),
+                    "city": city,
+                }
                 for e in feed.entries[:20]
             ]
     except Exception:
@@ -139,13 +152,15 @@ def rule_based_risk(news_count, weather, sent, thresholds):
 
 async def collect_signals():
     hours = CONFIG["lookback_hours"]
+    city_hours = CONFIG.get("city_lookback_hours", hours)
     outbreak_query = " OR ".join(list(CONFIG["diseases"]) + ["outbreak"])
     async with aiohttp.ClientSession() as session:
         # Shared diagnostic pool — never evidence for a specific city.
         news = await asyncio.gather(*[fetch_news(session, kw, hours) for kw in CONFIG["news_keywords"]])
-        # City-scoped news: one query per city, tagged with that city.
+        # City-scoped news: one query per city, tagged with that city. Wider
+        # window (default 7 days) so real city stories are not cut off.
         city_news = await asyncio.gather(*[
-            fetch_news(session, outbreak_query, hours, city=c["name"]) for c in CONFIG["cities"]
+            fetch_news(session, outbreak_query, city_hours, city=c["name"]) for c in CONFIG["cities"]
         ])
         weather = await gather_weather(session, CONFIG["cities"], fetch_weather)
         social = await asyncio.gather(*[fetch_news(session, kw, 24) for kw in CONFIG["social_keywords"]])
@@ -171,6 +186,7 @@ class RiskCard(BaseModel):
     chart: Optional[list[dict]] = None         # [{label, value}] — 7-day forecast sparkline
     illustration_hint: Optional[str] = None    # machine string for dashboard art
     region: Optional[str] = None               # "pakistan" | "global" (from city config)
+    evidence_line: Optional[str] = None        # plain-language coverage line
 
 class RiskResponse(BaseModel):
     timestamp: str
@@ -180,7 +196,7 @@ class RiskResponse(BaseModel):
 
 
 _CARD_KEYS = ("city", "disease", "risk_level", "confidence", "drivers", "recommendation")
-_CARD_EXTRA_KEYS = ("sources", "summary", "chart", "illustration_hint", "region")
+_CARD_EXTRA_KEYS = ("sources", "summary", "chart", "illustration_hint", "region", "evidence_line")
 _CARD_FIELDS = _CARD_KEYS + _CARD_EXTRA_KEYS
 
 
@@ -233,6 +249,49 @@ def _city_news(news: list, city: str) -> list[dict]:
     return [n for n in news if title_mentions_city(n.get("title"), city)]
 
 
+def _source_view(item: dict) -> dict:
+    """The citation shape every card source must carry."""
+    url = item.get("link") or item.get("url") or ""
+    return {
+        "title": item.get("title") or "",
+        "url": url,
+        "outlet": item.get("outlet") or (urlsplit(url).hostname or ""),
+        "published": item.get("published") or "",
+    }
+
+
+def _window_label(hours: int) -> str:
+    hours = int(hours or 0)
+    if hours and hours % 24 == 0:
+        days = hours // 24
+        return f"{days} day" + ("" if days == 1 else "s")
+    return f"{hours} hours"
+
+
+def _latest_date_label(items: list) -> str:
+    dates = sorted(d for d in (i.get("published") or "" for i in items) if d)
+    if not dates:
+        return ""
+    try:
+        return datetime.strptime(dates[-1], "%Y-%m-%d").strftime("%d %b")
+    except ValueError:
+        return ""
+
+
+def _evidence_line(items: list) -> str:
+    """Plain-language coverage line: how much city-specific reporting exists."""
+    window = _window_label(CONFIG.get("city_lookback_hours", CONFIG["lookback_hours"]))
+    count = len(items)
+    if count:
+        noun = "report" if count == 1 else "reports"
+        line = f"{count} city-specific {noun} in the last {window}"
+        latest = _latest_date_label(items)
+        if latest:
+            line += f" — latest {latest}"
+        return line + "."
+    return f"0 city-specific reports in the last {window}; risk reflects weather only."
+
+
 def _pick_sources(news: list, city: str, disease: str, limit: int = 5,
                   context: list | None = None) -> list[dict]:
     """Sources that name THIS city. A headline about another place never counts.
@@ -246,17 +305,16 @@ def _pick_sources(news: list, city: str, disease: str, limit: int = 5,
         if key in seen:
             continue
         seen.add(key)
-        picked.append({"title": n.get("title") or "", "url": n.get("link") or ""})
+        picked.append(_source_view(n))
         if len(picked) >= limit:
             break
     if not picked and context:
         item = next((c for c in context if isinstance(c, dict) and c.get("title")), None)
         if item:
-            picked.append({
-                "title": f"context — not evidence for this city: {item.get('title')}",
-                "url": item.get("link") or item.get("url") or "",
-                "context": True,
-            })
+            view = _source_view(item)
+            view["title"] = f"context — not evidence for this city: {item.get('title')}"
+            view["context"] = True
+            picked.append(view)
     return picked
 
 
@@ -314,19 +372,35 @@ def _illustration_hint(card: dict, weather: dict | None) -> str:
 def _attach_card_extras(cards: list, news: list, weather_map: dict, disease: str) -> list:
     """Attach sources/summary/chart/illustration_hint — additive, authentic only."""
     regions = _region_by_city()
+    by_link = {
+        (n.get("link") or n.get("url") or ""): n
+        for n in news
+        if isinstance(n, dict)
+    }
     for card in cards:
         city = card.get("city", "Unknown")
         card["region"] = regions.get(str(city).strip().lower(), "global")
         w = weather_map.get(str(city).lower())
+        city_items = _city_news(news, str(city))
         if card.get("sources"):
-            card["sources"] = [
-                s for s in card["sources"]
-                if isinstance(s, dict) and title_mentions_city(s.get("title"), str(city))
-            ]
+            enriched = []
+            for s in card["sources"]:
+                if not isinstance(s, dict):
+                    continue
+                if not title_mentions_city(s.get("title"), str(city)):
+                    continue
+                known = by_link.get(s.get("url") or "", {})
+                source = _source_view({**known, **s})
+                source["url"] = s.get("url") or source["url"]
+                enriched.append(source)
+            card["sources"] = enriched
         else:
             card["sources"] = _pick_sources(news, str(city), disease)
-        has_evidence = bool(card["sources"]) or bool(_city_news(news, str(city)))
+        has_evidence = bool(card["sources"]) or bool(city_items)
         card = _geography_gate(card, has_evidence, w)
+        # Plain-language coverage line. Counts reports that name the city over
+        # the city window; never the shared diagnostic pool.
+        card["evidence_line"] = _evidence_line(city_items)
         if card.get("chart") is None:
             card["chart"] = _sparkline(w)
         if card.get("illustration_hint") is None:
@@ -344,11 +418,18 @@ async def _fuse_or_rule_based(news, weather, social, sent, disease, city=None):
     """LLM fusion FIRST — the real agentic path."""
     fused = []
     try:
-        fused = await asyncio.wait_for(fuse_with_groq(news, weather, social, CONFIG), timeout=90) or []
+        # The provider call is bounded at 60s internally; this outer bound is
+        # the last line of defence so a hung provider never hangs the request.
+        fused = await asyncio.wait_for(
+            fuse_with_llm(news, weather, social, CONFIG), timeout=70
+        ) or []
     except Exception:
         fused = []
     if fused:
         cards = [_norm_card(c, disease) for c in fused if isinstance(c, dict) and c.get("risk_level")]
+        # Only configured cities may carry a card: an invented place is dropped.
+        known = {str(c.get("name", "")).strip().lower() for c in CONFIG.get("cities", [])}
+        cards = [c for c in cards if c["city"].strip().lower() in known]
         if city:
             cards = [c for c in cards if c["city"].lower() == city.lower()]
         if cards:
@@ -470,6 +551,33 @@ async def post_alert(card: AlertCard):
         "channels": results,
         "delivered": sum(1 for ok in results.values() if ok),
         "total": len(results),
+    }
+
+
+@app.get("/intel/llm")
+async def intel_llm():
+    """Proof endpoint: one real tiny completion against the configured provider."""
+    provider = llm_provider(CONFIG)
+    checked_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    if provider is None:
+        return {
+            "provider": None, "model": None, "ok": False,
+            "latency_ms": 0, "checked_at": checked_at,
+            "error": "no llm provider configured",
+        }
+    result = await llm_chat(
+        [{"role": "user", "content": "Reply with exactly: PROVIDER_OK"}],
+        config=CONFIG,
+        max_tokens=16,
+        temperature=0,
+    )
+    return {
+        "provider": result["provider"],
+        "model": result["model"],
+        "ok": bool(result["ok"]),
+        "latency_ms": result["latency_ms"],
+        "checked_at": checked_at,
+        "error": result.get("error"),
     }
 
 

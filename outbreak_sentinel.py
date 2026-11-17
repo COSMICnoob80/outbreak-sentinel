@@ -15,9 +15,11 @@ import json
 import os
 import re
 import sys
+import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 import aiohttp
 import feedparser
@@ -110,6 +112,9 @@ def default_config() -> dict:
             "api_key_env": "GROQ_API_KEY",
         },
         "lookback_hours": 24,
+        # Wider window used ONLY for per-city news queries: a real city story
+        # rarely lands inside 24h, and the shared diagnostic pool stays at 24h.
+        "city_lookback_hours": 168,
     }
 
 
@@ -180,6 +185,42 @@ def title_mentions_city(title: str, city: str) -> bool:
 # ── Signal Fetchers ───────────────────────────────────────────────────
 
 
+def rss_outlet(entry) -> str:
+    """Publisher name from the RSS ``<source>`` element, else the link's host."""
+    source = entry.get("source") if hasattr(entry, "get") else None
+    title = ""
+    href = ""
+    if isinstance(source, dict):
+        title = str(source.get("title") or "").strip()
+        href = str(source.get("href") or "").strip()
+    elif isinstance(source, str):
+        title = source.strip()
+    if title:
+        return title
+    if href:
+        return urlsplit(href).hostname or ""
+    return ""
+
+
+def iso_published(entry) -> str:
+    """Publish date as ``YYYY-MM-DD`` when the feed exposes a parseable date."""
+    parsed = entry.get("published_parsed") or entry.get("updated_parsed")
+    if not parsed:
+        return ""
+    try:
+        return datetime(*parsed[:3]).date().isoformat()
+    except (TypeError, ValueError):
+        return ""
+
+
+def lookback_label(lookback_hours: int) -> str:
+    """Google News window token: ``168h`` silently returns nothing; ``7d`` works."""
+    hours = int(lookback_hours or 0)
+    if hours and hours % 24 == 0:
+        return f"{hours // 24}d"
+    return f"{hours}h"
+
+
 async def fetch_news(
     session: aiohttp.ClientSession,
     keyword: str,
@@ -193,7 +234,7 @@ async def fetch_news(
     from the shared diagnostic pool (``city`` is None there).
     """
     phrase = f"{city_query_phrase(city)} {keyword}" if city else keyword
-    q = f"{phrase} when:{lookback_hours}h"
+    q = f"{phrase} when:{lookback_label(lookback_hours)}"
     url = f"https://news.google.com/rss/search?q={q}&hl=en-US&gl=US&ceid=US:en"
     try:
         async with session.get(url, timeout=aiohttp.ClientTimeout(total=15)) as resp:
@@ -205,7 +246,9 @@ async def fetch_news(
             {
                 "title": entry.get("title", ""),
                 "link": entry.get("link", ""),
-                "published": entry.get("published", ""),
+                "published": iso_published(entry),
+                "outlet": rss_outlet(entry)
+                or (urlsplit(entry.get("link", "")).hostname or ""),
                 "city": city,
             }
             for entry in feed.entries[:20]
@@ -428,19 +471,123 @@ def _extract_json(text: str) -> Any:
     return None
 
 
-async def fuse_with_groq(
+LLM_TIMEOUT_SECONDS = 60
+COMMANDCODE_BASE_URL = "https://api.commandcode.ai/provider/v1"
+COMMANDCODE_DEFAULT_MODEL = "z-ai/glm-5.3-flash"
+GROQ_BASE_URL = "https://api.groq.com/openai/v1"
+
+
+def llm_provider(config: dict | None = None) -> dict | None:
+    """Pick the LLM backend from the environment, in priority order.
+
+    1. ``CMDC_API_KEY``  → Command Code provider (OpenAI-compatible).
+    2. ``GROQ_API_KEY``  → Groq, same model/key semantics as before.
+    3. neither           → None (caller falls back to rule-based scoring).
+
+    ``LLM_MODEL`` overrides the model id for the Command Code provider.
+    Key material stays in the returned dict and is never logged.
+    """
+    model_override = (os.environ.get("LLM_MODEL") or "").strip() or None
+    cmdc_key = (os.environ.get("CMDC_API_KEY") or "").strip()
+    if cmdc_key:
+        return {
+            "name": "commandcode",
+            "base_url": COMMANDCODE_BASE_URL,
+            "model": model_override or COMMANDCODE_DEFAULT_MODEL,
+            "api_key": cmdc_key,
+        }
+    groq_key = (os.environ.get("GROQ_API_KEY") or "").strip()
+    if groq_key:
+        groq_cfg = (config or {}).get("groq") or {}
+        return {
+            "name": "groq",
+            "base_url": GROQ_BASE_URL,
+            # LLM_MODEL is a Command Code override; Groq keeps its config model.
+            "model": groq_cfg.get("model") or "openai/gpt-oss-120b",
+            "api_key": groq_key,
+        }
+    return None
+
+
+async def llm_chat(
+    messages: list[dict],
+    config: dict | None = None,
+    max_tokens: int = 1024,
+    temperature: float = 0.2,
+) -> dict:
+    """One OpenAI-compatible chat completion, bounded by a 60s timeout.
+
+    Returns ``{provider, model, ok, content, latency_ms, error}``. ``ok`` means
+    the provider answered with a completion — never that the content parsed.
+    A hung provider can never hang the request: the timeout forces ``ok=False``
+    and the caller degrades to rule-based scoring.
+    """
+    provider = llm_provider(config)
+    if not provider:
+        return {
+            "provider": None, "model": None, "ok": False,
+            "content": None, "latency_ms": 0, "error": "no llm provider configured",
+        }
+
+    url = provider["base_url"].rstrip("/") + "/chat/completions"
+    headers = {
+        "Authorization": f"Bearer {provider['api_key']}",
+        "Content-Type": "application/json",
+        # Cloudflare fronts the provider and 403s (error 1010) a default UAs.
+        "User-Agent": "outbreak-sentinel/1.0",
+        "Accept": "application/json",
+    }
+    payload = {
+        "model": provider["model"],
+        "messages": messages,
+        "temperature": temperature,
+        "max_tokens": max_tokens,
+    }
+
+    started = time.monotonic()
+    content, ok, error = None, False, None
+    try:
+        timeout = aiohttp.ClientTimeout(total=LLM_TIMEOUT_SECONDS)
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.post(url, json=payload, headers=headers) as resp:
+                body = await resp.text()
+                if resp.status != 200:
+                    error = f"HTTP {resp.status}"
+                else:
+                    data = json.loads(body)
+                    choices = data.get("choices") or []
+                    if choices:
+                        ok = True
+                        content = (choices[0].get("message") or {}).get("content")
+                    else:
+                        error = "empty choices"
+    except asyncio.TimeoutError:
+        error = f"timeout after {LLM_TIMEOUT_SECONDS}s"
+    except Exception as exc:
+        error = f"{type(exc).__name__}: {exc}"
+
+    latency_ms = int((time.monotonic() - started) * 1000)
+    print(
+        f"LLM provider={provider['name']} model={provider['model']} "
+        f"ok={str(ok).lower()} latency_ms={latency_ms}"
+    )
+    return {
+        "provider": provider["name"],
+        "model": provider["model"],
+        "ok": ok,
+        "content": content,
+        "latency_ms": latency_ms,
+        "error": error,
+    }
+
+
+async def fuse_with_llm(
     news_data: list, weather_data: list, social_data: list, config: dict
 ) -> list[dict]:
-    """Fuse signals using Groq LLM."""
-    api_key = os.environ.get(config["groq"]["api_key_env"])
-    if not api_key:
-        print(
-            f"{C.YELLOW}⚠ {config['groq']['api_key_env']} not set, using rule-based fallback{C.RESET}"
-        )
+    """Fuse signals with the configured LLM provider."""
+    if llm_provider(config) is None:
+        print(f"{C.YELLOW}⚠ No LLM provider configured, using rule-based fallback{C.RESET}")
         return []
-
-    client = Groq(api_key=api_key)
-    model = config["groq"]["model"]
 
     vertical = config.get("_vertical") or {}
     forecast_vars = vertical.get("forecast_vars") or [
@@ -449,10 +596,12 @@ async def fuse_with_groq(
         "weathercode",
     ]
 
+    # City-scoped headlines first: the shared pool is context, not evidence.
+    ordered_news = sorted(news_data, key=lambda a: 0 if a.get("city") else 1)
     news_summary = (
         "\n".join(
             f"- {a['title']}  [scope: {a.get('city') or 'shared diagnostic pool'}]"
-            for a in news_data[:15]
+            for a in ordered_news[:25]
         )
         or "No recent outbreak news."
     )
@@ -483,7 +632,13 @@ async def fuse_with_groq(
     risk_model = vertical.get("risk_model") or {}
     escalation = risk_model.get("escalation_rule", "")
 
+    monitored = ", ".join(
+        str(c.get("name")) for c in (config.get("cities") or []) if c.get("name")
+    ) or "no cities configured"
     prompt = f"""You are an {fusion_role}. Analyze these signals and produce risk cards.
+
+MONITORED CITIES — output exactly one card per city below, in this order:
+{monitored}
 
 NEWS SIGNALS:
 {news_summary}
@@ -508,7 +663,9 @@ For each city, output a JSON array of risk cards:
 ]
 
 Rules:
+- Output exactly one card for every city in MONITORED CITIES. Never invent a city, region or country that is not in that list.
 - GEOGRAPHY: Do not create a card for a city unless at least one source explicitly names that city; never attach a disease/death claim from another location.
+- If a monitored city has no city-specific report, give it "LOW", confidence 0.4, drivers ["no city-specific outbreak signal"] and a summary saying it reflects weather only.
 - Headlines tagged [scope: shared diagnostic pool] are NOT evidence for any city — use them only to understand the wider picture.
 - Base every card, including each summary, strictly on the provided signals — never invent news, links or statistics
 - {escalation or "Be conservative: only escalate if multiple signals align"}
@@ -518,26 +675,31 @@ Rules:
 
 Output ONLY the JSON array, no other text."""
 
-    try:
-        response = client.chat.completions.create(
-            model=model,
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.2,
-            max_tokens=4096,
-        )
-        result_text = response.choices[0].message.content
-        parsed = _extract_json(result_text)
-        if parsed is None:
-            print(f"{C.YELLOW}⚠ Could not parse Groq response as JSON{C.RESET}")
-            return []
-        if isinstance(parsed, dict):
-            if "risk_cards" in parsed:
-                return parsed["risk_cards"]
-            return [parsed]
-        return parsed
-    except Exception as e:
-        print(f"{C.YELLOW}⚠ Groq fusion failed: {e}{C.RESET}")
+    result = await llm_chat(
+        [{"role": "user", "content": prompt}],
+        config=config,
+        max_tokens=4096,
+        temperature=0.2,
+    )
+    if not result["ok"]:
+        print(f"{C.YELLOW}⚠ LLM fusion failed: {result.get('error')}{C.RESET}")
         return []
+    if not result.get("content"):
+        print(f"{C.YELLOW}⚠ LLM returned an empty completion{C.RESET}")
+        return []
+    parsed = _extract_json(result["content"])
+    if parsed is None:
+        print(f"{C.YELLOW}⚠ Could not parse LLM response as JSON{C.RESET}")
+        return []
+    if isinstance(parsed, dict):
+        if "risk_cards" in parsed:
+            return parsed["risk_cards"]
+        return [parsed]
+    return parsed
+
+
+# Back-compat alias: the fusion path is provider-agnostic now.
+fuse_with_groq = fuse_with_llm
 
 
 # ── Risk Card Output ──────────────────────────────────────────────────
@@ -648,9 +810,11 @@ async def main():
             ]
         )
         # City-scoped news: one query per city, tagged with its city.
+        # Uses the wider city window so real city stories are not cut off.
+        city_hours = config.get("city_lookback_hours", config["lookback_hours"])
         city_news_results = await asyncio.gather(
             *[
-                fetch_news(session, outbreak_query, config["lookback_hours"], city=c["name"])
+                fetch_news(session, outbreak_query, city_hours, city=c["name"])
                 for c in config["cities"]
             ]
         )
@@ -687,9 +851,10 @@ async def main():
 
     # Fuse
     risk_cards = []
-    if not args.dry_run and HAS_GROQ:
-        print(f"{C.DIM}🧠 Fusing with Groq LLM...{C.RESET}")
-        risk_cards = await fuse_with_groq(all_news, all_weather, all_social, config)
+    if not args.dry_run and llm_provider(config) is not None:
+        provider = llm_provider(config)
+        print(f"{C.DIM}🧠 Fusing with LLM ({provider['name']})...{C.RESET}")
+        risk_cards = await fuse_with_llm(all_news, all_weather, all_social, config)
 
     if not risk_cards:
         print(f"{C.DIM}📊 Using rule-based risk scoring...{C.RESET}")

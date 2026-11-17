@@ -92,5 +92,9 @@ groq:
   model: "openai/gpt-oss-120b"
   api_key_env: "GROQ_API_KEY"   # Name of env var holding the API key
 
-# Lookback window in hours
+# Lookback window in hours (shared diagnostic pool)
 lookback_hours: 24
+
+# Wider window used ONLY for per-city news queries (7 days), so real city
+# stories are not cut off while the shared pool stays at 24h.
+city_lookback_hours: 168
