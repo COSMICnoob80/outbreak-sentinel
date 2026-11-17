@@ -62,3 +62,9 @@ def test_card_without_any_score_renders_no_number():
 
 def test_demo_score_field_is_still_accepted():
     assert _score({"city": "Karachi", "level": "CRITICAL", "score": 87})["v"] == 87
+
+
+def test_dashboard_carries_no_fabricated_timeline_or_stale_provider():
+    src = HTML.read_text(encoding="utf-8")
+    assert "var TL=" not in src
+    assert "Groq (free tier)" not in src

@@ -358,16 +358,11 @@
   .timeline{margin-top:18px;}
   .tl-body{padding:15px;}
   .tl-strip{display:flex;gap:3px;align-items:flex-end;height:74px;}
-  .tl-col{flex:1;border-radius:3px 3px 0 0;background:#1c2740;transition:background .15s ease;cursor:pointer;position:relative;min-height:4px;}
-  .tl-col:hover{background:#2a3b5b;}
-  .tl-col.on{background:var(--cyan);box-shadow:0 0 10px rgba(56,189,248,.6);}
-  .tl-col.hot{background:rgba(251,191,36,.6);}
-  .tl-col.hot.on{background:var(--amber);box-shadow:0 0 10px rgba(251,191,36,.7);}
+  .tl-col{flex:1;border-radius:3px 3px 0 0;background:#1c2740;position:relative;min-height:4px;}
   .tl-axis{display:flex;justify-content:space-between;font-size:10.5px;color:var(--dim-2);margin-top:7px;letter-spacing:.05em;}
   .tl-controls{display:flex;flex-wrap:wrap;align-items:center;gap:14px;margin-top:14px;}
   .tl-readout{font-size:12.5px;color:var(--dim);}
   .tl-readout b{color:var(--text);}
-  .tl-readout .peakhot{color:var(--amber);}
   input[type=range]{
     -webkit-appearance:none;appearance:none;height:5px;flex:1;min-width:180px;border-radius:5px;
     background:linear-gradient(90deg,var(--cyan),#1c2740);outline:none;
@@ -588,27 +583,23 @@
     </div>
   </section>
 
-  <!-- 24h timeline -->
+  <!-- dated report timeline -->
   <section class="panel timeline">
     <div class="panel-head">
-      <h2>24h Signal Timeline</h2>
-      <span class="count" id="tlCaption">calibration preview</span>
+      <h2>Signal Timeline</h2>
+      <span class="count" id="tlCaption">city-specific reports &middot; last 7 days</span>
     </div>
     <div class="tl-body">
       <div class="tl-strip" id="tlStrip"></div>
-      <div class="tl-axis">
-        <span>00:00</span><span>06:00</span><span>12:00</span><span>18:00</span><span>23:00</span>
-      </div>
+      <div class="tl-axis" id="tlAxis"></div>
       <div class="tl-controls">
-        <span class="btn" id="playBtn" role="button" tabindex="0">Play</span>
-        <div class="tl-readout"><span id="tlHour">Hour 00:00</span> &middot; fused score <b id="tlScore">—</b> &middot; peak <span class="peakhot" id="tlPeak">—</span></div>
-        <input type="range" id="tlScrub" min="0" max="23" value="0" step="1" aria-label="Scrub hour"/>
+        <div class="tl-readout" id="tlReadout">&mdash;</div>
       </div>
     </div>
   </section>
 
   <footer class="note">
-    <span>Outbreak Sentinel &middot; verticals: bio-surveillance &middot; wildfire &middot; supply-chain &middot; fusion: Groq (free tier) with rule-based fallback &middot; ledger: append-only JSONL, <span class="mono">sha256</span> receipt ids</span>
+    <span>Outbreak Sentinel &middot; verticals: bio-surveillance &middot; wildfire &middot; supply-chain &middot; <span id="fusionLine">fusion: checking /intel/llm&hellip;</span> &middot; ledger: append-only JSONL, <span class="mono">sha256</span> receipt ids</span>
     <span id="footStamp">contacting /risk…</span>
   </footer>
 </div>
@@ -762,9 +753,6 @@ var FALLBACK_INTENTS=[
   {code:"TASK_COMPLETION",miners:"\u2014",canonical:true}
 ];
 
-var TL=[12,14,15,13,17,22,24,28,33,38,44,49,55,60,52,47,41,38,33,29,25,21,18,15];
-var TL_MAX=Math.max.apply(null,TL);
-var tlRefresh=null;
 
 /* ================= card normalisation ================= */
 function chartPoints(chart){
@@ -870,7 +858,7 @@ function sparkSVG(pts,color,uid){
 function miniSeries(c){
   var vals=(c.chart||[]).map(function(p){return Number(p.value);}).filter(function(v){return isFinite(v);});
   if(vals.length>=2)return {values:vals,label:"7d",title:"7-day outlook series returned in this card's /risk chart field"};
-  return {values:TL.slice(),label:"24h calib.",title:"Aggregate 24h calibration preview \u2014 /risk returned no per-city series for this card"};
+  return {values:[],label:"no series",title:"/risk returned no chart series for this card"};
 }
 
 /* ================= card render (prototype anatomy) ================= */
@@ -1240,55 +1228,64 @@ function renderMetrics(){
   if(settle.count>0)setMetric("mSettle",String(settle.count),shortHash(settle.lastTx),"Base Sepolia","mdot-ok");
 }
 
-/* ================= timeline ================= */
-var tlHour=0;
-var playing=false;
-var tlTimer=null;
-function pad(n){return (n<10?"0":"")+n;}
-function peakLabel(){var mx=Math.max.apply(null,TL); return mx+" @ "+pad(TL.indexOf(mx))+":00";}
-function renderTimeline(){
-  var strip=$("#tlStrip");
-  strip.innerHTML=TL.map(function(v,i){
-    var hot=v>=70?" hot":"";
-    var on=(i===tlHour)?" on":"";
-    var hh=Math.round((v/100)*70)+4;
-    return '<div class="tl-col'+hot+on+'" data-hour="'+i+'" style="height:'+hh+'px" title="Hour '+pad(i)+':00 \u00b7 fused score '+v+'"></div>';
-  }).join("");
-  $$("#tlStrip .tl-col").forEach(function(col){
-    col.addEventListener("click",function(){
-      stopPlay();
-      tlHour=parseInt(col.getAttribute("data-hour"),10);
-      $("#tlScrub").value=tlHour;
-      renderTimeline();
+/* ================= timeline: dated reports ================= */
+function dayKey(d){return d.getFullYear()+"-"+(d.getMonth()<9?"0":"")+(d.getMonth()+1)+"-"+(d.getDate()<10?"0":"")+d.getDate();}
+function pubDay(v){
+  var m=/^(\d{4})-(\d{2})-(\d{2})/.exec(String(v||""));
+  if(!m)return null;
+  var d=new Date(Number(m[1]),Number(m[2])-1,Number(m[3]));
+  return isFinite(d.getTime())?d:null;
+}
+/* Seven days ending today, counted from the same source dates the evidence lines use. */
+function reportSeries(){
+  var today=new Date();
+  today.setHours(0,0,0,0);
+  var days=[],index={},i,d,key;
+  for(i=6;i>=0;i--){
+    d=new Date(today.getTime());
+    d.setDate(today.getDate()-i);
+    key=dayKey(d);
+    index[key]=days.length;
+    days.push({key:key,count:0});
+  }
+  var cities={},latest=null,total=0;
+  (state.cards||[]).forEach(function(c){
+    var city=String(c.city||"Unknown");
+    (c.sources||[]).forEach(function(s){
+      var when=pubDay(s&&s.published);
+      if(!when)return;
+      var k=dayKey(when);
+      if(!(k in index))return;
+      days[index[k]].count++;
+      total++;
+      cities[city]=1;
+      if(!latest||when>latest)latest=when;
     });
   });
-  $("#tlHour").textContent="Hour "+pad(tlHour)+":00";
-  $("#tlScore").textContent=TL[tlHour];
-  $("#tlPeak").textContent=peakLabel();
+  return {days:days,total:total,cities:Object.keys(cities).length,latest:latest?dayKey(latest):""};
 }
-function stopPlay(){
-  playing=false;
-  if(tlTimer){clearInterval(tlTimer);tlTimer=null;}
-  var p=$("#playBtn");
-  p.textContent="Play";
-  p.classList.remove("active");
-}
-function startPlay(){
-  playing=true;
-  var p=$("#playBtn");
-  p.textContent="Pause";
-  p.classList.add("active");
-  tlTimer=setInterval(function(){
-    tlHour=(tlHour+1)%24;
-    $("#tlScrub").value=tlHour;
-    renderTimeline();
-  },700);
-}
-function updateTimelineCaption(){
-  $("#tlCaption").textContent=state.mode==="live"
-    ? "calibration preview \u00b7 /risk exposes no hourly fused series"
-    : (state.mode==="demo"?"aggregate fused score by hour \u00b7 PKT (demo)":"calibration preview");
-  if(tlRefresh)tlRefresh();
+function renderTimeline(){
+  var strip=$("#tlStrip"), axis=$("#tlAxis"), out=$("#tlReadout");
+  if(!strip||!axis||!out)return;
+  var series=reportSeries();
+  clear(strip);
+  clear(axis);
+  series.days.forEach(function(day){axis.appendChild(h("span",null,fmtShortDate(day.key)));});
+  if(series.total){
+    var maxCount=0;
+    series.days.forEach(function(day){if(day.count>maxCount)maxCount=day.count;});
+    series.days.forEach(function(day){
+      var col=h("div","tl-col");
+      col.style.height=String(4+Math.round((day.count/maxCount)*70))+"px";
+      col.title=day.count+" report"+(day.count===1?"":"s")+" \u00b7 "+fmtShortDate(day.key);
+      strip.appendChild(col);
+    });
+    out.textContent=series.total+" report"+(series.total===1?"":"s")+" across "+
+      series.cities+" "+(series.cities===1?"city":"cities")+" \u00b7 latest "+fmtShortDate(series.latest);
+  }else{
+    out.textContent="no dated reports in the last 7 days";
+  }
+  $("#tlCaption").textContent="city-specific reports \u00b7 last 7 days";
 }
 
 /* ================= state transitions ================= */
@@ -1319,7 +1316,7 @@ function renderAll(){
   renderMetrics();
   renderFeed();
   renderCards();
-  updateTimelineCaption();
+  renderTimeline();
 }
 function useDemo(reason){
   state.mode="demo";
@@ -1481,6 +1478,22 @@ function loadStats(){
       node.title=d.wallet_error?("wallet unavailable \u2014 "+d.wallet_error):"live from GET /telegraph/stats";
     })
     .catch(function(){});
+}
+function loadLlm(){
+  var line=$("#fusionLine");
+  if(!line)return;
+  function paint(d){
+    if(d&&d.ok&&d.provider){
+      line.textContent="fusion: "+String(d.provider)+(d.model?" \u00b7 "+String(d.model):"");
+    }else{
+      line.textContent="fusion: deterministic (narrator unavailable)";
+    }
+  }
+  if(location.protocol==="file:"){paint(null);return;}
+  fetch("/intel/llm",{cache:"no-store"})
+    .then(function(r){return r.ok?r.json():null;})
+    .then(paint)
+    .catch(function(){paint(null);});
 }
 function loadStatus(){
   if(location.protocol==="file:")return;
@@ -1858,15 +1871,6 @@ $("#intentsPill").addEventListener("click",function(){
 $("#intentsPill").addEventListener("keydown",function(e){
   if(e.key==="Enter"||e.key===" "){e.preventDefault();$("#intentsPanel").classList.toggle("open");}
 });
-$("#tlScrub").addEventListener("input",function(){
-  stopPlay();
-  tlHour=parseInt(this.value,10);
-  renderTimeline();
-});
-$("#playBtn").addEventListener("click",function(){playing?stopPlay():startPlay();});
-$("#playBtn").addEventListener("keydown",function(e){
-  if(e.key==="Enter"||e.key===" "){e.preventDefault();playing?stopPlay():startPlay();}
-});
 $("#chainMode").addEventListener("click",function(){
   var next=document.body.classList.contains("chain-pro")?"simple":"pro";
   applyChainMode(next);
@@ -1911,6 +1915,7 @@ loadRisk();
 loadIntents();
 loadStatus();
 loadStats();
+loadLlm();
 })();
 </script>
 </body>
