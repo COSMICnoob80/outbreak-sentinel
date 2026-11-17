@@ -235,6 +235,10 @@
   .spark-foot b{color:var(--dim);font-weight:600;}
   .spark-foot .up{color:var(--ok);}
   .spark-foot .down{color:#f87171;}
+  .spark-cap{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:9.5px;color:var(--dim-2);letter-spacing:.06em;}
+  .spark-norain{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11px;color:var(--dim-2);padding:9px 0;}
+  .card-foot .mini .mini-norain{display:block;line-height:1.2;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:10px;color:var(--dim-2);letter-spacing:.04em;}
+  .provenance{font-size:10.5px;line-height:1.55;color:var(--dim-2);padding:2px 15px 13px;}
   .glyphs{display:flex;gap:7px;color:var(--dim-2);margin-top:7px;justify-content:flex-end;}
   .glyphs svg{width:13px;height:13px;stroke:currentColor;fill:none;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;}
   .card-foot{display:flex;align-items:center;gap:10px;margin-top:11px;padding-top:9px;border-top:1px solid rgba(31,41,55,.8);}
@@ -527,6 +531,7 @@
       </div>
 
       <div class="cards" id="stateCards" hidden></div>
+      <p class="provenance">Score 0&#8211;100 = city-specific reports in 7 days + rain + heat + concern. No reports caps the card at LOW. Weather: Open-Meteo. News: Google News RSS, last 7 days.</p>
     </section>
   </div>
 
@@ -857,7 +862,8 @@ function sparkSVG(pts,color,uid){
 
 function miniSeries(c){
   var vals=(c.chart||[]).map(function(p){return Number(p.value);}).filter(function(v){return isFinite(v);});
-  if(vals.length>=2)return {values:vals,label:"7d",title:"7-day outlook series returned in this card's /risk chart field"};
+  var label=c.demo?"7d":"rain forecast \u00b7 7d";
+  if(vals.length>=2)return {values:vals,label:label,title:"7-day rain outlook series returned in this card's /risk chart field"};
   return {values:[],label:"no series",title:"/risk returned no chart series for this card"};
 }
 
@@ -960,12 +966,20 @@ function renderCard(c){
     var vals=c.chart.map(function(p){return p.value;});
     var min=Math.min.apply(null,vals),max=Math.max.apply(null,vals);
     var delta=vals[vals.length-1]-vals[0];
+    var zeroRain=vals.every(function(v){return Number(v)===0;});
     var sparkWrap=h("div","spark-wrap");
-    sparkWrap.innerHTML=sparkSVG(vals,SEV[c.level].c,"sg"+(uidSeq++));
-    var foot=h("div","spark-foot");
-    foot.innerHTML='<span>min <b>'+esc(fmtNum(min))+'</b></span><span>max <b>'+esc(fmtNum(max))+'</b></span>'+
-      '<span class="'+(delta>=0?"up":"down")+'">'+(delta>=0?"\u25B2 ":"\u25BC ")+esc(fmtNum(Math.abs(delta)))+'</span>';
-    sparkWrap.appendChild(foot);
+    sparkWrap.appendChild(h("div","spark-cap",c.demo?"7d":"rain forecast \u00b7 7d"));
+    if(zeroRain){
+      sparkWrap.appendChild(h("div","spark-norain","no rain forecast"));
+    }else{
+      var svgBox=h("div");
+      svgBox.innerHTML=sparkSVG(vals,SEV[c.level].c,"sg"+(uidSeq++));
+      sparkWrap.appendChild(svgBox);
+      var foot=h("div","spark-foot");
+      foot.innerHTML='<span>min <b>'+esc(fmtNum(min))+'</b></span><span>max <b>'+esc(fmtNum(max))+'</b></span>'+
+        '<span class="'+(delta>=0?"up":"down")+'">'+(delta>=0?"\u25B2 ":"\u25BC ")+esc(fmtNum(Math.abs(delta)))+'</span>';
+      sparkWrap.appendChild(foot);
+    }
     detail.appendChild(sparkWrap);
     detail.appendChild(glyphStrip(c));
   }else if(c.glyphs.length||c.hint){
@@ -985,7 +999,11 @@ function renderCard(c){
   var ms=miniSeries(c);
   var footEl=h("div","card-foot");
   var mini=h("div","mini");
-  mini.innerHTML=sparkSVG(ms.values,SEV[c.level].c,"mn"+(uidSeq++));
+  if(ms.values.length&&ms.values.every(function(v){return Number(v)===0;})){
+    mini.appendChild(h("span","mini-norain","no rain forecast"));
+  }else{
+    mini.innerHTML=sparkSVG(ms.values,SEV[c.level].c,"mn"+(uidSeq++));
+  }
   mini.title=ms.title;
   footEl.appendChild(mini);
   footEl.appendChild(h("span","mfoot",ms.label));
@@ -1044,7 +1062,7 @@ function renderCards(){
   var pk=[],gl=[];
   list.forEach(function(c){(cardRegion(c)==="pakistan"?pk:gl).push(c);});
   if(pk.length)host.appendChild(groupBlock("PAKISTAN",pk));
-  if(gl.length)host.appendChild(groupBlock("GLOBAL",gl));
+  if(gl.length)host.appendChild(groupBlock("OTHER CITIES",gl));
   setCardState("cards");
 }
 
@@ -1090,7 +1108,7 @@ function feedItem(f){
   if(f.disease)meta.appendChild(h("span",null,f.disease));
   if(f.city)meta.appendChild(h("span",null,f.city));
   if(f.peak!=null&&isFinite(f.peak))meta.appendChild(h("span",null,"peak "+fmtNum(f.peak)+" mm"));
-  if(f.conf!=null)meta.appendChild(h("span","v","confidence "+f.conf.toFixed(2)));
+  if(f.conf!=null)meta.appendChild(h("span","v","confidence "+Math.round(f.conf*100)+"%"));
   art.appendChild(meta);
   return art;
 }
