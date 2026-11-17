@@ -1048,4 +1048,5 @@ any city; (2) `_pick_sources` appended disease-only matches even when the headli
   - settlement hashes still match `state/hackathon-state.md:35-37`; full `0xf2276f58…` hash in `SPINE.md:394`, re-checked on Base Sepolia at block 48407418; burner balance corrected 19.97 → **19.95 USDC** (Base Sepolia `balanceOf`, read 2026-11-17).
 - `demo/SCRIPT-60s.md` and `demo/SHOTLIST.md`: same UI corrections (`GLOBAL`→`OTHER CITIES`, `sparkline`→`rain forecast · 7d` strip, `engine: llm`→`deterministic+narrator`) and balance 19.97 → 19.95.
 - Proofs: `grep -n "GLOBAL" demo/HACKATHON-SUBMISSION.md` → none; `grep -n "100.82.76.91"` → line 13; `env -u PYTHONPATH .venv/bin/python -m pytest -q` → **76 passed**.
+- `demo/SHOTLIST.md` B-roll also corrected: `pytest` `3 passed` → **76 passed** (`env -u PYTHONPATH .venv/bin/python -m pytest -q`), and stale commit hashes `4fef68a`/`dce42d4` → "the two most recent commits".
 - Commit `3bc856e` pushed; work-order file `.beat/wo-soldier-aa.md` deleted.

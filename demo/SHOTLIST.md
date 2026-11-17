@@ -48,10 +48,10 @@ S1–S10 = one continuous take, no cuts. S11–S13 = B-roll inserts. S14 = proof
 - Action: nothing moves; freeze tx strip, block, receipt hash for the full 10s.
 - Cap: `demo/media/10-close.mp4`
 ### S11 · B-roll · tests
-- Terminal: `env -u PYTHONPATH .venv/bin/python -m pytest tests -q` → `3 passed`.
+- Terminal: `env -u PYTHONPATH .venv/bin/python -m pytest tests -q` → `76 passed`.
 - Cap: `demo/media/b1-pytest.mp4`
 ### S12 · B-roll · commits
-- Terminal: `git log --oneline -5` — frame `4fef68a` and `dce42d4` on screen.
+- Terminal: `git log --oneline -5` — frame the two most recent commits on screen.
 - Cap: `demo/media/b2-gitlog.mp4`
 ### S13 · B-roll · second settlement
 - URL: `sepolia.basescan.org/tx/0xfbfe793e…` — block **48,407,506**; hover From/To and the USDC transfer log.
