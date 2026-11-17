@@ -892,3 +892,57 @@ same design tokens, zero CDN. Console (`/telegraph/dashboard`) stays the console
 - Sample chip "Measles in South Carolina" pre-fills city `South Carolina`, which is not one of the
   configured cities (Columbia SC is). The verdict card includes an "asked → returned" line when the
   engine answers for a different city, so the mismatch is visible rather than hidden.
+
+---
+
+## 📊 CHECKPOINT 2026-11-17 — city geography fix (Soldier-M)
+
+### The defect (boss screenshots)
+A globally fetched headline — "Dengue death toll crosses 500 as 3 more die - Aijker Patrika" — was
+rendered under **AMSTERDAM** at `value est. 72 · conf 0.91`. Amsterdam has no locally acquired
+dengue. Three root causes: (1) news was pooled globally and the LLM could attach any headline to
+any city; (2) `_pick_sources` appended disease-only matches even when the headline named no city;
+(3) the rule fallback used `len(news)` (global total) for every city.
+
+### The fix
+- **Geography primitives** (`outbreak_sentinel.py`): `CITY_ALIASES` dict, `city_query_phrase`,
+  `city_match_terms`, `title_mentions_city`. Aliases: Netherlands→`Netherlands Amsterdam`,
+  South Carolina/Columbia→`Columbia South Carolina`, Ludhiana/Amritsar→`… Punjab India`,
+  Anchorage→`Anchorage Alaska`. Region words (`punjab`, `india`, `south`, …) never attribute a
+  headline on their own.
+- **City-scoped collection**: `collect_signals` (API) and `main()` (CLI) issue one query per city —
+  `'{city phrase} {disease OR …} when:24h'` — and tag each item with its city. The untagged shared
+  pool is kept for diagnostics only (`news_shared_pool` / `news_city_scoped` in `/risk.signals`).
+- **Source gate** (`_pick_sources`): a source counts only if its headline names the city or an
+  unambiguous alias. Query tag is provenance, not evidence. Optional `context` is capped at one
+  item and labelled `context — not evidence for this city`; default NONE.
+- **Risk gate**: `rule_based_risk` takes the city-specific count; zero local reports drops pooled
+  sentiment, caps confidence at **0.55** and forces **LOW** on benign weather with driver
+  `no city-specific outbreak signal`. LLM cards without city-named evidence are clamped the same
+  way (at most MODERATE if weather is severe). The prompt now forbids a card for a city no source
+  names and marks shared-pool headlines as non-evidence.
+
+### Verified (own uvicorn 127.0.0.1:8004; 8001 never touched)
+- `pytest tests -q` → **17 passed** (9 pre-existing + 8 new in `tests/test_city_geography.py`).
+- `GET /risk` → **200** in 3.8 s, `engine: rule-based`, signals
+  `{news:112, pool:87, city_scoped:25, social:88, cities:10}`.
+- Every card LOW/0.4 (thresholds are not breached by one headline). Amsterdam: `sources: []`,
+  `drivers: ["no city-specific outbreak signal"]`.
+- **Amsterdam source proof:** `amsterdam sources: []`; `Aijker anywhere: False` across all cards.
+- Only non-city-named string on the board is Columbia's `South Carolina …` alias match, which the
+  alias rule explicitly allows.
+- Server on 8004 killed afterwards.
+
+### Commits
+- `09864a3` — `fix(engine): city-scoped news + source geography gate — no cross-city claims`
+  (pushed `3b4103a..09864a3`)
+- followed by `docs(spine): checkpoint soldier-M city geography`
+
+### Honest caveats / for the next owner
+- A city-tagged query can still surface local news that is not disease-related (e.g. Peshawar HPV
+  vaccination, Columbia election). It names the city so it is allowed as a source, but it does not
+  create a card above LOW on its own.
+- Alias breadth is a deliberate trade: `South Carolina` counts for Columbia; `Netherlands` counts
+  for Amsterdam.
+- `drivers` is empty for a city with 1–4 city-named reports (below `news_medium`); that is the
+  existing threshold behaviour, not a regression.
