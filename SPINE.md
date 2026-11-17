@@ -978,3 +978,11 @@ any city; (2) `_pick_sources` appended disease-only matches even when the headli
 - Cards expose `risk_score` (0–100) + `evidence_count`; `engine` = `deterministic` / `deterministic+narrator`.
 - Tests 50 passed; live 8015: 10/10 Dengue cards, one Karachi card with 2 sources, `/intel/llm` ok, repeat call identical.
 - Commit `b0a516e`; cache/feed/receipts/chain 84532/config untouched.
+
+## 2026-11-17 — Soldier S
+
+- `scoreFor` in `dashboard/index.html` read `rc.score`; `/risk` sends `risk_score` → `NaN` → fell through to a fabricated `SEV[level].base + conf*span`. Live: Karachi rendered **44** while `/risk` said **30**.
+- Fixed: reads `risk_score` (`score` kept for the demo payload only), returns `null` when neither is present; card renders `RISK SCORE —` with no `/100`; `SEV.base/span` deleted; `cmp` sorts nulls last.
+- Payload-name audit: `evidence_line`, `drivers[].kind`, `sources[].outlet`, `illustration_hint` all read correctly. Two real mismatches — the score (above) and `sources[].published`, which arrives as a human label (`3h ago` / `12 Nov` / `date unknown`) and was dropped by the ISO-only `fmtShortDate`; the label is now rendered. `evidence_count` is sent but never read by the console (not a wrong name; left unused).
+- `tests/test_dashboard_score.py` extracts the real `scoreFor` and runs it under node: `risk_score:30` → 30, absent score → `null`. Red on the old code (`44 is None`), green after.
+- Verified: `pytest` **69 passed**; live 8017 `/risk?disease=dengue` Karachi `risk_score: 30, risk_level: MODERATE, confidence: 0.7` (engine `deterministic+narrator`), `scoreFor(live Karachi)` → 30; served `/dashboard/` shows the fixed function and `b.base+c*b.span` has 0 matches. Server killed; commit `e6a2822` pushed. No Python scoring, narrator, cache or feed changes.
