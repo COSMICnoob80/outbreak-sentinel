@@ -957,3 +957,13 @@ any city; (2) `_pick_sources` appended disease-only matches even when the headli
 - Sources now carry `title/url/outlet/published`; console renders `Outlet · 12 Nov` links; `evidence_line` on every card. `_geography_gate`/`title_mentions_city` semantics untouched.
 - Fusion prompt listed monitored cities after the first run returned Florida/Dak Lak/Romblon; fused cards for unconfigured cities are dropped in `app._fuse_or_rule_based`.
 - Verified live 8011: Karachi `engine: llm`, HIGH 0.85, Express Tribune `2026-11-12`; Amsterdam LOW 0.4, 0 sources. `pytest` → 24 passed. Not done: browser render check, no Telegraph settlement run (no spend).
+
+## 2026-11-17 — Soldier O
+
+- Sources now need city (`title_mentions_city`) AND disease topic (`title_matches_topic`); vocabulary lives in `config.yaml: topic_terms` (mirrored in `default_config()`). A city-named crime story is never evidence.
+- `_city_topic_news` drives sources, evidence counts and rule scoring; `evidence_line` names the disease; zero qualifying sources → `sources: []` + `0 city-specific <disease> reports…`.
+- `drivers` are `{"kind","text"}` objects; rule path derives `news/weather/social/model`, untyped LLM drivers become `model`; console renders the kind verbatim or `SIGNAL` (never by row order).
+- `GET /risk` cached in memory 300 s keyed `(disease, city|all)`, adds `cached`/`cache_age_s`, `?refresh=1` bypass; startup warm-up for dengue/all is a background task. `/telegraph/risk` stays live.
+- Console: quiet `updated Ns ago` beside the ENGINE pill. Legacy string drivers still render (dashboard, assess, telegraph page, console adapter).
+- Verified 8012: Karachi HIGH 0.85, sources both mention dengue, **no Bol robbery story**; repeat call 0.0039 s `cached: true, cache_age_s: 16`; warmed default grid 0.0028 s, 10 cards. `pytest` → 30 passed.
+- Not done: no Telegraph settlement run (no spend); no work-order file existed in the repo to delete.
