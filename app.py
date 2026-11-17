@@ -33,6 +33,7 @@ from outbreak_sentinel import (
     rss_outlet,
     title_matches_topic,
     title_mentions_city,
+    topic_terms_for,
 )
 
 app = FastAPI(title="Outbreak Sentinel", version="1.0.0")
@@ -196,6 +197,8 @@ class RiskResponse(BaseModel):
     timestamp: str
     signals: dict
     risk_cards: list[RiskCard]
+    feed: Optional[list[dict]] = None        # one deduped row per story, real dates
+    feed_refreshed: Optional[str] = None     # batch clock, shown once at the top
     engine: Optional[str] = None  # "llm" | "rule-based" — honest about path taken
     cached: bool = False          # served from the 5-minute in-memory grid cache
     cache_age_s: Optional[int] = None
@@ -310,24 +313,30 @@ def _window_label(hours: int) -> str:
 
 
 def _latest_date_label(items: list) -> str:
-    dates = sorted(d for d in (i.get("published") or "" for i in items) if d)
+    """Newest publication date among these sources, as ``17 Nov``."""
+    dates = []
+    for item in items:
+        match = re.match(r"(\d{4})-(\d{2})-(\d{2})", str(item.get("published") or ""))
+        if not match:
+            continue
+        try:
+            dates.append(datetime(*(int(group) for group in match.groups())))
+        except ValueError:
+            continue
     if not dates:
         return ""
-    try:
-        return datetime.strptime(dates[-1], "%Y-%m-%d").strftime("%d %b")
-    except ValueError:
-        return ""
+    return max(dates).strftime("%d %b")
 
 
-def _evidence_line(items: list, disease: str) -> str:
-    """Plain-language coverage line: how much city-specific reporting exists."""
+def _evidence_line(sources: list, disease: str) -> str:
+    """Plain-language coverage line that counts exactly the links rendered."""
     window = _window_label(CONFIG.get("city_lookback_hours", CONFIG["lookback_hours"]))
     label = str(disease or "outbreak").strip().lower()
-    count = len(items)
+    count = len(sources)
     if count:
         noun = "report" if count == 1 else "reports"
         line = f"{count} city-specific {label} {noun} in the last {window}"
-        latest = _latest_date_label(items)
+        latest = _latest_date_label(sources)
         if latest:
             line += f" — latest {latest}"
         return line + "."
@@ -335,6 +344,91 @@ def _evidence_line(items: list, disease: str) -> str:
         f"0 city-specific {label} reports in the last {window}; "
         "risk reflects weather only."
     )
+
+
+_TITLE_OUTLET_RE = re.compile(r"\s+[-\u2013\u2014]\s+[^-\u2013\u2014]{2,60}$")
+
+
+def _normalise_title(title) -> str:
+    """Comparison key: lowercase, outlet suffix removed, punctuation stripped."""
+    text = _TITLE_OUTLET_RE.sub("", str(title or "").strip())
+    text = re.sub(r"[^a-z0-9]+", " ", text.lower())
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def _published_label(published, now: datetime) -> str:
+    """A story's own age: ``3h ago`` / ``Yesterday`` / ``12 Nov`` / ``date unknown``.
+
+    Never the batch clock — an item without a publication time says so.
+    """
+    match = re.match(
+        r"(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2}))?", str(published or "")
+    )
+    if not match:
+        return "date unknown"
+    try:
+        stamp = datetime(int(match.group(1)), int(match.group(2)), int(match.group(3)))
+    except ValueError:
+        return "date unknown"
+    had_clock = match.group(4) is not None
+    if had_clock:
+        stamp = stamp.replace(hour=int(match.group(4)), minute=int(match.group(5)))
+    today = now.date()
+    if stamp.date() == today:
+        if not had_clock:
+            return "today"
+        hours = int((now - stamp).total_seconds() // 3600)
+        return "just now" if hours < 1 else f"{hours}h ago"
+    if stamp.date() == today - timedelta(days=1):
+        return "Yesterday"
+    return f"{stamp.day} {stamp.strftime('%b')}"
+
+
+def _build_feed(cards: list, now: datetime, disease: str = "") -> list[dict]:
+    """One row per distinct story: deduped by normalised title, real dates."""
+    rows, seen = [], set()
+    fallback_disease = str(disease or "").strip().lower()
+
+    def card_disease(card: dict) -> str:
+        label = str(card.get("disease") or "").strip().lower()
+        return label if label and label != "none" else fallback_disease
+
+    def add(row: dict, key: str) -> None:
+        if not key or key in seen:
+            return
+        seen.add(key)
+        rows.append(row)
+
+    for card in cards:
+        for source in card.get("sources") or []:
+            title = source.get("title") or source.get("url") or ""
+            add({
+                "channel": "news",
+                "headline": title,
+                "city": card.get("city") or "",
+                "disease": card_disease(card),
+                "vertical": card.get("vertical") or "bio-surveillance",
+                "confidence": card.get("confidence"),
+                "published": _published_label(source.get("published"), now),
+                "outlet": source.get("outlet") or "",
+                "url": source.get("url") or "",
+            }, _normalise_title(title))
+        chart = card.get("chart") or []
+        if chart:
+            peak = max((p.get("value") or 0) for p in chart)
+            add({
+                "channel": "weather",
+                "headline": f"{card.get('city')} \u2014 7-day rain outlook series",
+                "city": card.get("city") or "",
+                "disease": card_disease(card),
+                "vertical": card.get("vertical") or "bio-surveillance",
+                "confidence": None,
+                "published": _published_label(chart[0].get("label"), now),
+                "outlet": "open-meteo.com",
+                "url": "",
+                "peak": round(float(peak), 1),
+            }, "weather:" + str(card.get("city") or "").lower())
+    return rows
 
 
 def _pick_sources(news: list, city: str, disease: str, limit: int = 5,
@@ -415,6 +509,50 @@ def _illustration_hint(card: dict, weather: dict | None) -> str:
     return f"{disease}-{cue}-{level}"
 
 
+def _mentions_any(text: str, terms) -> bool:
+    lowered = str(text or "").lower()
+    return any(re.search(rf"\b{re.escape(str(t))}\b", lowered) for t in terms)
+
+
+def _driver_off_topic(text: str, disease: str) -> bool:
+    """True when a driver is about a different disease than this card's.
+
+    A driver that already speaks this card's vocabulary always passes. A driver
+    naming another disease's distinctive terms (``vaccine``, ``typhoid``,
+    ``measles``) is off-topic and dropped. Terms every disease shares
+    (``outbreak``, ``cases``, ``hospitalised``) prove nothing either way, so a
+    driver carrying only those — or no disease claim at all, like weather — is
+    left alone.
+    """
+    own_terms = topic_terms_for(CONFIG, disease)
+    if _mentions_any(text, own_terms):
+        return False
+    own = str(disease or "").strip().lower()
+    for other, terms in (CONFIG.get("topic_terms") or {}).items():
+        key = str(other).strip().lower()
+        if key == own or key == "default":
+            continue
+        distinctive = [t for t in terms if str(t).lower() not in set(own_terms)]
+        if _mentions_any(text, distinctive):
+            return True
+    return False
+
+
+def _drivers_on_topic(drivers: list, disease: str, limit: int = 4) -> list:
+    """This card's drivers, topic-filtered with the configured vocabulary."""
+    kept = []
+    for driver in drivers or []:
+        text = _driver_text(driver)
+        if not text or _driver_off_topic(text, disease):
+            continue
+        kept.append(driver)
+        if len(kept) >= limit:
+            break
+    if not kept:
+        return [{"kind": "model", "text": "no disease-specific drivers in the last 7 days"}]
+    return kept
+
+
 def _attach_card_extras(cards: list, news: list, weather_map: dict, disease: str) -> list:
     """Attach sources/summary/chart/illustration_hint — additive, authentic only."""
     regions = _region_by_city()
@@ -446,9 +584,10 @@ def _attach_card_extras(cards: list, news: list, weather_map: dict, disease: str
             card["sources"] = _pick_sources(news, str(city), disease)
         has_evidence = bool(card["sources"]) or bool(city_items)
         card = _geography_gate(card, has_evidence, w)
-        # Plain-language coverage line. Counts reports that name the city AND
-        # match this disease over the city window; never the shared pool.
-        card["evidence_line"] = _evidence_line(city_items, disease)
+        card["drivers"] = _drivers_on_topic(card.get("drivers") or [], disease)
+        # Plain-language coverage line. Counts exactly the sources rendered on
+        # this card, so the number and the links can never disagree.
+        card["evidence_line"] = _evidence_line(card["sources"], disease)
         if card.get("chart") is None:
             card["chart"] = _sparkline(w)
         if card.get("illustration_hint") is None:
@@ -538,9 +677,9 @@ async def _build_risk(city: Optional[str], disease: str) -> dict:
     if city and not cards:
         raise HTTPException(status_code=404, detail=f"No data for city: {city}")
 
-    now = datetime.now(timezone(timedelta(hours=5))).strftime("%Y-%m-%d %H:%M PKT")
+    now = datetime.now(timezone(timedelta(hours=5)))
     return {
-        "timestamp": now,
+        "timestamp": now.strftime("%Y-%m-%d %H:%M PKT"),
         "signals": {
             "news": len(news),
             "news_shared_pool": sum(1 for n in news if not n.get("city")),
@@ -549,6 +688,8 @@ async def _build_risk(city: Optional[str], disease: str) -> dict:
             "cities": len(weather),
         },
         "risk_cards": [{k: c[k] for k in _CARD_FIELDS if k in c} for c in cards],
+        "feed": _build_feed(cards, now, disease),
+        "feed_refreshed": now.strftime("%H:%M"),
         "engine": engine,
     }
 

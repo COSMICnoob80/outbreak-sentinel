@@ -133,9 +133,10 @@
   .grid{display:grid;grid-template-columns:minmax(280px,25fr) minmax(0,75fr);gap:18px;align-items:start;}
   @media (max-width:900px){.grid{grid-template-columns:1fr;}}
   .panel{border:1px solid var(--border);border-radius:12px;background:var(--panel);min-width:0;}
-  .panel-head{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:13px 15px;border-bottom:1px solid var(--border);}
+  .panel-head{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;padding:13px 15px;border-bottom:1px solid var(--border);}
   .panel-head h2{font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--dim);}
   .panel-head .count{font-size:11px;color:var(--dim-2);font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;}
+  .panel-head .feed-stamp{flex-basis:100%;order:3;margin-left:0;margin-top:2px;font-size:10.5px;color:var(--dim-2);}
 
   /* ---------- feed ---------- */
   .chips{display:flex;flex-wrap:wrap;gap:7px;padding:12px 15px;border-bottom:1px solid var(--border);}
@@ -197,6 +198,8 @@
   .tag.receipt{color:var(--amber);border-color:rgba(251,191,36,.4);}
   .score-wrap{text-align:right;flex:0 0 auto;}
   .score{font-size:26px;font-weight:700;line-height:1;font-variant-numeric:tabular-nums;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;}
+  .score .den{font-size:12px;font-weight:600;color:var(--dim-2);margin-left:1px;}
+  .score-label{font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--dim-2);margin-bottom:3px;}
   .score.lv-CRITICAL{color:var(--amber);}
   .score.lv-HIGH{color:#fb923c;}
   .score.lv-MODERATE{color:var(--cyan);}
@@ -465,6 +468,7 @@
     <aside class="panel">
       <div class="panel-head">
         <h2>Live Signal Feed</h2>
+        <span class="feed-stamp" id="feedStamp"></span>
         <span class="count" id="feedCount"></span>
       </div>
       <div class="chips" id="chips"></div>
@@ -660,12 +664,6 @@ function confNum(v){if(v==null||v==="")return null; var n=Number(v); if(!isFinit
 function stampTime(ts){var m=/(\d{2}:\d{2})/.exec(String(ts||"")); return m?m[1]:"live";}
 function shortHash(x){var s=String(x||""); return s.length>14 ? s.slice(0,8)+"\u2026"+s.slice(-6) : s;}
 
-/* stable per-headline seed (FNV-1a) — same headline always yields the same estimate */
-function hash32(s){
-  var x=2166136261,i=0,t=String(s==null?"":s);
-  for(;i<t.length;i++){x^=t.charCodeAt(i);x=Math.imul(x,16777619);}
-  return x>>>0;
-}
 function normStr(x){return String(x==null?"":x).trim().toLowerCase().replace(/\s+/g," ");}
 
 /* Pakistan vs global — engine supplies card.region; name-set kept only as a fallback */
@@ -685,20 +683,8 @@ function cardRegion(c){
   return isPakistan(c&&c.city)?"pakistan":"global";      /* fallback: static demo data */
 }
 
-/* headline-only severity heuristics for per-item estimates */
-var HOT_RX=/outbreak|death|deaths|died|fatal|surge|spike|soar|ris(e|ing)|jump|cluster|epidemic|pandemic|crisis|emergenc|contaminat|positive|hospitali[sz]|admission|panic|warning|alert|spread|infect|cases?/gi;
-var COOL_RX=/routine|vaccin|decline|declin|drop|fallen|fell|calm|stabil|under control|no new|mild|recover|contained|low risk|awareness|screening|drive/gi;
-function estScore(head,base){
-  var s=String(head||"");
-  var hot=Math.min(3,(s.match(HOT_RX)||[]).length);
-  var cool=Math.min(3,(s.match(COOL_RX)||[]).length);
-  var jitter=(hash32(s)%9)-4;
-  var v=Math.round((Number(base)||0)+hot*6-cool*6+jitter);
-  return Math.max(3,Math.min(99,v));
-}
-
 /* ================= state ================= */
-var state={mode:"loading",engine:"",cacheAge:null,signals:{},stamp:"",cards:[],feed:[],intents:null,intentCount:0,status:null};
+var state={mode:"loading",engine:"",cacheAge:null,signals:{},stamp:"",cards:[],feed:[],feedRefreshed:"",intents:null,intentCount:0,status:null};
 var riskF={sort:"score",order:"desc",vert:"all"};
 var feedF={fam:"all",vert:"all"};
 var uidSeq=0;
@@ -741,11 +727,11 @@ var DEMO_CARDS=[
 ];
 
 var DEMO_FEED=[
-  {ch:"news", t:"09:41", head:"Dengue deaths cross 100 in Karachi\u2019s worst October on record", city:"Karachi", vert:"bio-surveillance", sent:"\u22120.82", val:"risk 87 \u25B2 \u00b7 conf 0.93", vs:"hot"},
-  {ch:"weather", t:"09:12", head:"Heat, low humidity and stalled winds push fire-weather index past threshold in Attica", city:"Athens", vert:"wildfire", sent:"\u22120.71", val:"fire idx 27.8 \u25B2 \u00b7 conf 0.88", vs:"hot"},
-  {ch:"social", t:"08:56", head:"Water-contamination complaints spike across peri-urban Islamabad (\u2212312 posts / 6h)", city:"Islamabad", vert:"bio-surveillance", sent:"\u22120.64", val:"cholera 61 \u25B2 \u00b7 conf 0.79", vs:"hot"},
-  {ch:"weather", t:"08:30", head:"Operating-wind caps slow crane rows at Yangshan; berth queue extends to 34 vessels", city:"Shanghai", vert:"supply-chain", sent:"\u22120.36", val:"delay 58 \u25AC \u00b7 conf 0.81", vs:"up"},
-  {ch:"news", t:"07:58", head:"Carriers reroute via Port Klang; Singapore dwell times creep just above baseline", city:"Singapore", vert:"supply-chain", sent:"\u22120.12", val:"delay 18 \u25AC \u00b7 conf 0.66", vs:"flat"}
+  {ch:"news", head:"Dengue deaths cross 100 in Karachi\u2019s worst October on record", city:"Karachi", disease:"dengue", vert:"bio-surveillance", conf:0.93, pub:"3h ago"},
+  {ch:"weather", head:"Heat, low humidity and stalled winds push fire-weather index past threshold in Attica", city:"Athens", disease:"", vert:"wildfire", conf:0.88, pub:"5h ago"},
+  {ch:"social", head:"Water-contamination complaints spike across peri-urban Islamabad", city:"Islamabad", disease:"cholera", vert:"bio-surveillance", conf:0.79, pub:"6h ago"},
+  {ch:"weather", head:"Operating-wind caps slow crane rows at Yangshan; berth queue extends to 34 vessels", city:"Shanghai", disease:"", vert:"supply-chain", conf:0.81, pub:"Yesterday"},
+  {ch:"news", head:"Carriers reroute via Port Klang; Singapore dwell times creep just above baseline", city:"Singapore", disease:"", vert:"supply-chain", conf:0.66, pub:"date unknown"}
 ];
 
 var DEMO_TICKS=[
@@ -913,10 +899,12 @@ function renderCard(c){
   top.appendChild(idBox);
 
   var side=h("div","score-wrap");
+  side.appendChild(h("div","score-label","risk score"));
   var sc=h("div","score lv-"+c.level,String(c.score));
+  sc.appendChild(h("span","den","/100"));
   sc.title=c.demo
-    ? "demo score — static design dataset"
-    : "risk index derived from the risk level band + confidence (/risk does not expose a numeric score)";
+    ? "demo risk score out of 100 — static design dataset"
+    : "risk score out of 100, derived from the risk level band + confidence (/risk does not expose a numeric score)";
   side.appendChild(sc);
   side.appendChild(h("div","level",c.level));
   var baselinePct=fallbackConfPct();
@@ -1071,27 +1059,31 @@ function renderCards(){
 }
 
 /* ================= feed ================= */
-function buildLiveFeed(cards,stamp){
-  var out=[];
-  cards.forEach(function(c){
-    c.sources.forEach(function(s){
-      var head=s.title||hostOf(s.url)||"source";
-      var est=estScore(head,c.score);
-      var delta=est-c.score;
-      var seed=hash32(head);
-      var cf=c.conf==null?null:Math.max(0.15,Math.min(0.99,c.conf+(((seed>>3)%5)-2)/100));
-      out.push({ch:"news",t:stamp,head:head,city:c.city,vert:c.vert,sent:null,
-        val:"est. "+est+" "+(delta>1?"\u25B2":(delta<-1?"\u25BC":"\u25AC"))+" \u00b7 conf "+(cf!=null?cf.toFixed(2):"\u2014"),
-        vs:delta>1?"hot":(delta<-1?"up":"flat"),
-        vtitle:"estimated from this headline's own keywords \u2014 deterministic per headline, not a separate engine score"});
-    });
-    if(c.chart.length){
-      var vals=c.chart.map(function(p){return p.value;});
-      var mx=Math.max.apply(null,vals);
-      var d=vals[vals.length-1]-vals[0];
-      out.push({ch:"weather",t:stamp,head:c.city+" \u2014 7-day outlook series",city:c.city,vert:c.vert,
-        sent:null,val:"peak "+fmtNum(mx)+" "+(d>=0?"\u25B2":"\u25BC"),vs:mx>=10?"hot":"flat"});
-    }
+function normHeadline(t){
+  var s=String(t||"").trim().replace(/\s+[-\u2013\u2014]\s+[^-\u2013\u2014]{2,60}$/,"");
+  return s.toLowerCase().replace(/[^a-z0-9]+/g," ").replace(/\s+/g," ").trim();
+}
+function toFeedRow(raw){
+  raw=raw||{};
+  return {
+    ch:String(raw.channel||raw.ch||"news"),
+    head:String(raw.headline||raw.head||""),
+    city:String(raw.city||""),
+    disease:String(raw.disease||""),
+    vert:String(raw.vertical||raw.vert||"bio-surveillance"),
+    conf:confNum(raw.confidence),
+    pub:String(raw.published||raw.pub||"date unknown"),
+    peak:raw.peak==null?null:Number(raw.peak)
+  };
+}
+function buildFeed(rows){
+  var out=[],seen={};
+  (rows||[]).forEach(function(raw){
+    var f=toFeedRow(raw);
+    var key=normHeadline(f.head)||f.head;
+    if(!key||seen[key])return;
+    seen[key]=1;
+    out.push(f);
   });
   return out;
 }
@@ -1099,18 +1091,16 @@ function feedItem(f){
   var art=h("article","sig");
   var row=h("div","row1");
   row.appendChild(h("span","fam "+String(f.ch||"news"),String(f.ch||"news")));
-  row.appendChild(h("span","time", f.t&&f.t!=="live" ? f.t : "live"));
+  var when=h("span","time",String(f.pub||"date unknown"));
+  if(f.pub&&f.pub.indexOf("series")<0)when.title="when this story was published";
+  row.appendChild(when);
   art.appendChild(row);
   art.appendChild(h("div","text",String(f.head||"")));
   var meta=h("div","meta");
-  meta.appendChild(h("span",null,String(f.city||"")));
-  meta.appendChild(h("span",null,String(f.vert||"")));
-  if(f.sent!=null)meta.appendChild(h("span",null,"sentiment "+String(f.sent)));
-  var v=h("span",null,"value ");
-  var vv=h("span","v",String(f.val||""));
-  if(f.vtitle)vv.title=f.vtitle;
-  v.appendChild(vv);
-  meta.appendChild(v);
+  if(f.disease)meta.appendChild(h("span",null,f.disease));
+  if(f.city)meta.appendChild(h("span",null,f.city));
+  if(f.peak!=null&&isFinite(f.peak))meta.appendChild(h("span",null,"peak "+fmtNum(f.peak)+" mm"));
+  if(f.conf!=null)meta.appendChild(h("span","v","confidence "+f.conf.toFixed(2)));
   art.appendChild(meta);
   return art;
 }
@@ -1313,6 +1303,16 @@ function renderAll(){
   $("#footStamp").textContent=state.mode==="live"
     ? ("last fuse "+(state.stamp||"now")+" \u00b7 engine "+(state.engine||"\u2014")+" \u00b7 testnet Base Sepolia (84532)")
     : (state.mode==="demo"?"demo data \u2014 static 8-city design dataset":"contacting /risk\u2026");
+  var fs=$("#feedStamp");
+  if(fs){
+    if(state.mode==="live"&&state.feedRefreshed){
+      fs.hidden=false;
+      fs.textContent="feed refreshed "+state.feedRefreshed;
+    }else{
+      fs.hidden=true;
+      fs.textContent="";
+    }
+  }
   renderTicker();
   renderMetrics();
   renderFeed();
@@ -1325,7 +1325,8 @@ function useDemo(reason){
   state.signals={};
   state.stamp="";
   state.cards=DEMO_CARDS.map(function(c){return toCard(c,"demo");});
-  state.feed=DEMO_FEED.slice();
+  state.feedRefreshed="";
+  state.feed=buildFeed(DEMO_FEED);
   var pill=$("#demoPill");
   pill.hidden=false;
   pill.title="Demo data \u2014 "+reason+". Static 8-city design dataset; /risk was not reached.";
@@ -1336,6 +1337,7 @@ function failState(msg){
   state.engine="";
   state.cards=[];
   state.feed=[];
+  state.feedRefreshed="";
   $("#cardCount").textContent="unavailable";
   $("#feedCount").textContent="unavailable";
   renderAll();
@@ -1355,6 +1357,7 @@ function loadRisk(){
   state.stamp="";
   state.cards=[];
   state.feed=[];
+  state.feedRefreshed="";
   renderAll();
 
   if(location.protocol==="file:"){
@@ -1387,7 +1390,8 @@ function loadRisk(){
       state.signals=(d&&d.signals&&typeof d.signals==="object")?d.signals:{};
       state.stamp=(d&&d.timestamp)?String(d.timestamp):"";
       state.cards=raw.map(function(rc){return toCard(rc,"live");});
-      state.feed=buildLiveFeed(state.cards,stampTime(state.stamp));
+      state.feedRefreshed=(d&&d.feed_refreshed)?String(d.feed_refreshed):stampTime(state.stamp);
+      state.feed=buildFeed(Array.isArray(d&&d.feed)?d.feed:[]);
       renderAll();
       if(state.cards.length)loadAux();
     })
