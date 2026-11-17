@@ -638,10 +638,10 @@ var ASK_USDC=0.01;
 
 /* ================= severity ================= */
 var SEV={
-  CRITICAL:{c:"#fbbf24",r:4,base:70,span:30},
-  HIGH:{c:"#fb923c",r:3,base:50,span:20},
-  MODERATE:{c:"#38bdf8",r:2,base:30,span:20},
-  LOW:{c:"#5f6b7f",r:1,base:0,span:30}
+  CRITICAL:{c:"#fbbf24",r:4},
+  HIGH:{c:"#fb923c",r:3},
+  MODERATE:{c:"#38bdf8",r:2},
+  LOW:{c:"#5f6b7f",r:1}
 };
 function levelKey(v){var k=String(v==null?"":v).toUpperCase(); return SEV[k]?k:"LOW";}
 
@@ -779,19 +779,19 @@ function chartPoints(chart){
   });
   return out;
 }
-function scoreFor(rc,level,conf){
-  var s=Number(rc&&rc.score);
-  if(isFinite(s)&&s>0)return Math.round(s);
-  var b=SEV[level];
-  var c=conf==null?0.5:conf;
-  return Math.round(b.base+c*b.span);
+function scoreFor(rc){
+  if(!rc)return null;
+  var raw=rc.risk_score!=null?rc.risk_score:rc.score;
+  if(raw==null||raw==="")return null;
+  var s=Number(raw);
+  return isFinite(s)?Math.round(s):null;
 }
 function toCard(raw,mode){
   raw=raw||{};
   if(mode==="demo"){
     var dl=levelKey(raw.level);
     return {id:raw.rx?String(raw.rx):("demo-"+String(raw.city)), city:String(raw.city||"Unknown"),
-      hazard:String(raw.hazard||"surveillance"), level:dl, conf:confNum(raw.conf), score:Number(raw.score)||0,
+      hazard:String(raw.hazard||"surveillance"), level:dl, conf:confNum(raw.conf), score:raw.score==null?null:Number(raw.score),
       vert:String(raw.vert||"bio-surveillance"), receipt:raw.rx?String(raw.rx):null,
       summary:raw.summary?String(raw.summary):"", drivers:[], recommendation:"",
       sources:(raw.cites||[]).filter(function(c){return c&&c[1];}).map(function(c){return {title:String(c[0]||""),url:String(c[1])};}),
@@ -803,7 +803,7 @@ function toCard(raw,mode){
   var city=String(raw.city||"Unknown");
   return {id:"live-"+(raw.city||"unknown")+"-"+(raw.disease||""), city:city,
     hazard:String(raw.disease||"unspecified hazard"), level:lvl, conf:cf,
-    score:scoreFor(raw,lvl,cf), vert:"bio-surveillance", receipt:null,
+    score:scoreFor(raw), vert:"bio-surveillance", receipt:null,
     summary:raw.summary?String(raw.summary):"",
     drivers:Array.isArray(raw.drivers)?raw.drivers.slice(0,6).map(function(d){
       if(d&&typeof d==="object")return {kind:String(d.kind||""),text:String(d.text||"")};
@@ -900,11 +900,13 @@ function renderCard(c){
 
   var side=h("div","score-wrap");
   side.appendChild(h("div","score-label","risk score"));
-  var sc=h("div","score lv-"+c.level,String(c.score));
-  sc.appendChild(h("span","den","/100"));
+  var sc=h("div","score lv-"+c.level,c.score==null?"\u2014":String(c.score));
+  if(c.score!=null)sc.appendChild(h("span","den","/100"));
   sc.title=c.demo
     ? "demo risk score out of 100 — static design dataset"
-    : "risk score out of 100, derived from the risk level band + confidence (/risk does not expose a numeric score)";
+    : (c.score==null
+      ? "no score was returned for this city — /risk did not send one"
+      : "risk score out of 100, as returned by /risk");
   side.appendChild(sc);
   side.appendChild(h("div","level",c.level));
   var baselinePct=fallbackConfPct();
@@ -955,7 +957,7 @@ function renderCard(c){
       var u=safeUrl(s.url), host=hostOf(s.url);
       if(!u||!host)return;
       var label=s.outlet||host;
-      var day=fmtShortDate(s.published);
+      var day=fmtShortDate(s.published)||String(s.published||"");
       if(day)label+=" \u00b7 "+day;
       var a=h("a","cite",label);
       a.href=u;
@@ -1035,7 +1037,7 @@ function groupBlock(label,cards){
 }
 function cmp(a,b){
   var d=0;
-  if(riskF.sort==="score")d=b.score-a.score;
+  if(riskF.sort==="score")d=(b.score==null?-1:b.score)-(a.score==null?-1:a.score);
   else if(riskF.sort==="confidence")d=(b.conf==null?0:b.conf)-(a.conf==null?0:a.conf);
   else if(riskF.sort==="level")d=levelRank(b.level)-levelRank(a.level);
   else d=a.city.toLowerCase().localeCompare(b.city.toLowerCase());
