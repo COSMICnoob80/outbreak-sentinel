@@ -17,7 +17,14 @@ from fastapi.responses import FileResponse, RedirectResponse
 from pydantic import BaseModel
 from receipts import ReceiptStore, make_receipt
 from publish import publish_cards
-from outbreak_sentinel import default_config, fuse_with_groq, gather_weather, load_env_file
+from outbreak_sentinel import (
+    city_query_phrase,
+    default_config,
+    fuse_with_groq,
+    gather_weather,
+    load_env_file,
+    title_mentions_city,
+)
 
 app = FastAPI(title="Outbreak Sentinel", version="1.0.0")
 
@@ -42,15 +49,21 @@ CONFIG = load_config()
 
 # ── Signal fetchers ───────────────────────────────────────────────────
 
-async def fetch_news(session, keyword, hours):
-    q = f"{keyword} pakistan when:{hours}h"
+async def fetch_news(session, keyword, hours, city=None):
+    """Google News RSS. With `city`, the query is city-scoped and every item is
+    tagged with that city; the untagged pool (city=None) is diagnostics only."""
+    phrase = f"{city_query_phrase(city)} {keyword}" if city else keyword
+    q = f"{phrase} when:{hours}h"
     url = f"https://news.google.com/rss/search?q={q}&hl=en-US&gl=US&ceid=US:en"
     try:
         async with session.get(url, timeout=aiohttp.ClientTimeout(total=15)) as r:
             if r.status != 200:
                 return []
             feed = feedparser.parse(await r.text())
-            return [{"title": e.get("title", ""), "link": e.get("link", "")} for e in feed.entries[:20]]
+            return [
+                {"title": e.get("title", ""), "link": e.get("link", ""), "city": city}
+                for e in feed.entries[:20]
+            ]
     except Exception:
         return []
 
@@ -88,8 +101,12 @@ def sentiment_score(text):
     return max(0.0, min(1.0, score))
 
 def rule_based_risk(news_count, weather, sent, thresholds):
+    """Rule fallback. `news_count` must be CITY-SPECIFIC: zero local reports
+    means no outbreak evidence for this city, so pooled sentiment is ignored,
+    confidence is capped at 0.55, and benign weather forces LOW."""
     score = 0
     drivers = []
+    local_reports = news_count > 0
     if news_count >= thresholds["news_high"]:
         score += 40; drivers.append(f"News uptick: {news_count} articles in 24h")
     elif news_count >= thresholds["news_medium"]:
@@ -102,23 +119,38 @@ def rule_based_risk(news_count, weather, sent, thresholds):
             score += 20; drivers.append(f"Heavy rain forecast: {max_rain:.1f}mm")
         if max_temp >= thresholds["temp_high"]:
             score += 15; drivers.append(f"High temperature: {max_temp:.1f}°C")
-    if sent >= thresholds["sentiment_high"]:
-        score += 25; drivers.append(f"High panic sentiment: {sent:.2f}")
-    elif sent >= thresholds["sentiment_medium"]:
-        score += 10; drivers.append(f"Moderate concern: {sent:.2f}")
+    if local_reports:
+        if sent >= thresholds["sentiment_high"]:
+            score += 25; drivers.append(f"High panic sentiment: {sent:.2f}")
+        elif sent >= thresholds["sentiment_medium"]:
+            score += 10; drivers.append(f"Moderate concern: {sent:.2f}")
+    else:
+        drivers.insert(0, "no city-specific outbreak signal")
     if score >= 70: level = "CRITICAL"
     elif score >= 50: level = "HIGH"
     elif score >= 30: level = "MODERATE"
     else: level = "LOW"
-    return {"risk_level": level, "score": score, "confidence": round(min(0.95, 0.4 + score/100), 2), "drivers": drivers}
+    confidence = min(0.95, 0.4 + score/100)
+    if not local_reports:
+        confidence = min(confidence, 0.55)
+        if score < 30:
+            level = "LOW"
+    return {"risk_level": level, "score": score, "confidence": round(confidence, 2), "drivers": drivers}
 
 async def collect_signals():
     hours = CONFIG["lookback_hours"]
+    outbreak_query = " OR ".join(list(CONFIG["diseases"]) + ["outbreak"])
     async with aiohttp.ClientSession() as session:
+        # Shared diagnostic pool — never evidence for a specific city.
         news = await asyncio.gather(*[fetch_news(session, kw, hours) for kw in CONFIG["news_keywords"]])
+        # City-scoped news: one query per city, tagged with that city.
+        city_news = await asyncio.gather(*[
+            fetch_news(session, outbreak_query, hours, city=c["name"]) for c in CONFIG["cities"]
+        ])
         weather = await gather_weather(session, CONFIG["cities"], fetch_weather)
         social = await asyncio.gather(*[fetch_news(session, kw, 24) for kw in CONFIG["social_keywords"]])
     all_news = [a for sub in news for a in sub]
+    all_news += [a for sub in city_news for a in sub]
     all_social = [p for sub in social for p in sub]
     all_weather = [w for w in weather if "error" not in w]
     all_text = " ".join(a["title"] for a in all_news + all_social)
@@ -194,14 +226,22 @@ def _region_by_city() -> dict:
     }
 
 
-def _pick_sources(news: list, city: str, disease: str, limit: int = 5) -> list[dict]:
-    """Real news items from collect_signals, matching the card's city then disease."""
-    city_low, disease_low = city.lower(), disease.lower()
+def _city_news(news: list, city: str) -> list[dict]:
+    """Items whose headline names this city. The query tag is provenance only —
+    a city-scoped RSS query can return unrelated headlines, so it is never
+    treated as evidence by itself."""
+    return [n for n in news if title_mentions_city(n.get("title"), city)]
+
+
+def _pick_sources(news: list, city: str, disease: str, limit: int = 5,
+                  context: list | None = None) -> list[dict]:
+    """Sources that name THIS city. A headline about another place never counts.
+
+    `context` is opt-in and capped at one item, explicitly labelled as not
+    evidence for this city. Default is no context at all.
+    """
     seen, picked = set(), []
-    ranked = []
-    ranked = [n for n in news if city_low in (n.get("title") or "").lower()]
-    ranked += [n for n in news if disease_low in (n.get("title") or "").lower()]
-    for n in ranked:
+    for n in _city_news(news, city):
         key = (n.get("title") or "", n.get("link") or "")
         if key in seen:
             continue
@@ -209,7 +249,38 @@ def _pick_sources(news: list, city: str, disease: str, limit: int = 5) -> list[d
         picked.append({"title": n.get("title") or "", "url": n.get("link") or ""})
         if len(picked) >= limit:
             break
+    if not picked and context:
+        item = next((c for c in context if isinstance(c, dict) and c.get("title")), None)
+        if item:
+            picked.append({
+                "title": f"context — not evidence for this city: {item.get('title')}",
+                "url": item.get("link") or item.get("url") or "",
+                "context": True,
+            })
     return picked
+
+
+def _geography_gate(card: dict, has_city_evidence: bool, weather: dict | None) -> dict:
+    """No city-named evidence means no confident outbreak claim for that city."""
+    if has_city_evidence:
+        return card
+    th = CONFIG["thresholds"]
+    forecast = (weather or {}).get("forecast") or []
+    max_rain = max((d.get("precipitation") or 0) for d in forecast) if forecast else 0
+    max_temp = max((d.get("temp_max") or 0) for d in forecast) if forecast else 0
+    benign = max_rain < th["rain_high"] and max_temp < th["temp_high"]
+    card["confidence"] = min(float(card.get("confidence") or 0.4), 0.55)
+    card["drivers"] = ["no city-specific outbreak signal"]
+    if benign:
+        card["risk_level"] = "LOW"
+        card["recommendation"] = "Monitor — no city-specific outbreak reports"
+        card["summary"] = (
+            f"No city-specific outbreak reports for {card.get('city')} in the lookback window; "
+            "risk reflects weather only."
+        )
+    elif card.get("risk_level") in ("HIGH", "CRITICAL"):
+        card["risk_level"] = "MODERATE"
+    return card
 
 
 def _sparkline(weather: dict | None) -> list[dict]:
@@ -247,8 +318,15 @@ def _attach_card_extras(cards: list, news: list, weather_map: dict, disease: str
         city = card.get("city", "Unknown")
         card["region"] = regions.get(str(city).strip().lower(), "global")
         w = weather_map.get(str(city).lower())
-        if card.get("sources") is None:
+        if card.get("sources"):
+            card["sources"] = [
+                s for s in card["sources"]
+                if isinstance(s, dict) and title_mentions_city(s.get("title"), str(city))
+            ]
+        else:
             card["sources"] = _pick_sources(news, str(city), disease)
+        has_evidence = bool(card["sources"]) or bool(_city_news(news, str(city)))
+        card = _geography_gate(card, has_evidence, w)
         if card.get("chart") is None:
             card["chart"] = _sparkline(w)
         if card.get("illustration_hint") is None:
@@ -277,7 +355,11 @@ async def _fuse_or_rule_based(news, weather, social, sent, disease, city=None):
             return cards, "llm"
     cards = []
     for w in weather:
-        card = _norm_card(rule_based_risk(len(news), w, sent, CONFIG["thresholds"]), disease, w)
+        city_news = _city_news(news, w["city"])
+        city_sent = sentiment_score(" ".join(n.get("title", "") for n in city_news))
+        card = _norm_card(
+            rule_based_risk(len(city_news), w, city_sent, CONFIG["thresholds"]), disease, w
+        )
         card["city"] = w["city"]
         if city is None or w["city"].lower() == city.lower():
             cards.append(card)
@@ -311,7 +393,13 @@ async def get_risk(city: Optional[str] = None, disease: str = "dengue"):
     now = datetime.now(timezone(timedelta(hours=5))).strftime("%Y-%m-%d %H:%M PKT")
     return RiskResponse(
         timestamp=now,
-        signals={"news": len(news), "social": len(social), "cities": len(weather)},
+        signals={
+            "news": len(news),
+            "news_shared_pool": sum(1 for n in news if not n.get("city")),
+            "news_city_scoped": sum(1 for n in news if n.get("city")),
+            "social": len(social),
+            "cities": len(weather),
+        },
         risk_cards=[RiskCard(**{k: c[k] for k in _CARD_FIELDS if k in c}) for c in cards],
         engine=engine,
     )
@@ -484,8 +572,15 @@ async def telegraph_risk(req: TelegraphRiskRequest):
             risk_card = dict(cards[0])
             risk_card["city"] = req.city or risk_card["city"]
         elif weather:
-            w = weather[0]
-            risk_card = _norm_card(rule_based_risk(len(news), w, sent, CONFIG["thresholds"]), req.disease, w)
+            w = next(
+                (x for x in weather if req.city and x["city"].lower() == req.city.lower()),
+                weather[0],
+            )
+            city_news = _city_news(news, w["city"])
+            city_sent = sentiment_score(" ".join(n.get("title", "") for n in city_news))
+            risk_card = _norm_card(
+                rule_based_risk(len(city_news), w, city_sent, CONFIG["thresholds"]), req.disease, w
+            )
             risk_card["city"] = w["city"]
             risk_card["disease"] = req.disease
             engine = "rule-based"

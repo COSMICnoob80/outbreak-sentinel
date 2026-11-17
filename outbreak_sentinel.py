@@ -130,14 +130,70 @@ def load_config(path: str = "config.yaml") -> dict:
     return defaults
 
 
+# ── Geography ─────────────────────────────────────────────────────────
+# News queries must be city-scoped. A bare city name is ambiguous for a few
+# of them, so each maps to an explicit search phrase. The phrase is only a
+# query expansion — matching still requires the city (or an unambiguous alias
+# token) to appear in the headline.
+CITY_ALIASES = {
+    "Amsterdam": "Netherlands Amsterdam",
+    "Netherlands": "Netherlands Amsterdam",
+    "Columbia": "Columbia South Carolina",
+    "South Carolina": "Columbia South Carolina",
+    "Ludhiana": "Ludhiana Punjab India",
+    "Amritsar": "Amritsar Punjab India",
+    "Anchorage": "Anchorage Alaska",
+    "Alaska": "Anchorage Alaska",
+}
+
+# Region words that must never by themselves attribute a headline to a city
+# (e.g. "Punjab" is shared by Ludhiana and Amritsar).
+_WEAK_ALIAS_TOKENS = {
+    "india", "pakistan", "punjab", "south", "north", "state", "city",
+    "region", "area", "county",
+}
+
+
+def city_query_phrase(city: str) -> str:
+    """Search phrase that disambiguates a city for a news query."""
+    name = str(city or "").strip()
+    return CITY_ALIASES.get(name) or CITY_ALIASES.get(name.title()) or name
+
+
+def city_match_terms(city: str) -> list[str]:
+    """Tokens whose presence in a headline is evidence for this city."""
+    name = str(city or "").strip().lower()
+    terms = [name] if name else []
+    phrase = city_query_phrase(city).lower()
+    for token in re.findall(r"[a-z]+", phrase):
+        if len(token) >= 4 and token not in terms and token not in _WEAK_ALIAS_TOKENS:
+            terms.append(token)
+    return terms
+
+
+def title_mentions_city(title: str, city: str) -> bool:
+    """True only when the headline itself names the city (word boundaries)."""
+    text = str(title or "").lower()
+    return any(re.search(rf"\b{re.escape(t)}\b", text) for t in city_match_terms(city))
+
+
 # ── Signal Fetchers ───────────────────────────────────────────────────
 
 
 async def fetch_news(
-    session: aiohttp.ClientSession, keyword: str, lookback_hours: int
+    session: aiohttp.ClientSession,
+    keyword: str,
+    lookback_hours: int,
+    city: str | None = None,
 ) -> list[dict]:
-    """Fetch news headlines via Google News RSS."""
-    q = f"{keyword} pakistan when:{lookback_hours}h"
+    """Fetch news headlines via Google News RSS.
+
+    When ``city`` is given the query is scoped to that city, and every item is
+    tagged with its ``city`` so downstream code can tell city evidence apart
+    from the shared diagnostic pool (``city`` is None there).
+    """
+    phrase = f"{city_query_phrase(city)} {keyword}" if city else keyword
+    q = f"{phrase} when:{lookback_hours}h"
     url = f"https://news.google.com/rss/search?q={q}&hl=en-US&gl=US&ceid=US:en"
     try:
         async with session.get(url, timeout=aiohttp.ClientTimeout(total=15)) as resp:
@@ -150,6 +206,7 @@ async def fetch_news(
                 "title": entry.get("title", ""),
                 "link": entry.get("link", ""),
                 "published": entry.get("published", ""),
+                "city": city,
             }
             for entry in feed.entries[:20]
         ]
@@ -289,9 +346,15 @@ def simple_sentiment(text: str) -> float:
 def rule_based_risk(
     news_count: int, weather: dict, sentiment: float, thresholds: dict
 ) -> dict:
-    """Fallback risk scoring when Groq is unavailable."""
+    """Fallback risk scoring when Groq is unavailable.
+
+    ``news_count`` must be the CITY-SPECIFIC report count. Zero local reports
+    means there is no evidence for this city: the pooled sentiment score is
+    ignored, confidence is capped at 0.55, and benign weather forces LOW.
+    """
     score = 0
     drivers = []
+    local_reports = news_count > 0
 
     if news_count >= thresholds["news_high"]:
         score += 40
@@ -311,12 +374,15 @@ def rule_based_risk(
             score += 15
             drivers.append(f"High temperature: {max_temp:.1f}°C")
 
-    if sentiment >= thresholds["sentiment_high"]:
-        score += 25
-        drivers.append(f"High panic sentiment: {sentiment:.2f}")
-    elif sentiment >= thresholds["sentiment_medium"]:
-        score += 10
-        drivers.append(f"Moderate concern: {sentiment:.2f}")
+    if local_reports:
+        if sentiment >= thresholds["sentiment_high"]:
+            score += 25
+            drivers.append(f"High panic sentiment: {sentiment:.2f}")
+        elif sentiment >= thresholds["sentiment_medium"]:
+            score += 10
+            drivers.append(f"Moderate concern: {sentiment:.2f}")
+    else:
+        drivers.insert(0, "no city-specific outbreak signal")
 
     if score >= 70:
         risk_level = "CRITICAL"
@@ -328,6 +394,12 @@ def rule_based_risk(
         risk_level = "LOW"
 
     confidence = min(0.95, 0.4 + score / 100)
+    if not local_reports:
+        # A weather-only read is not outbreak evidence, and pooled news from
+        # other cities must never inflate it.
+        confidence = min(confidence, 0.55)
+        if score < 30:
+            risk_level = "LOW"
 
     return {
         "risk_level": risk_level,
@@ -378,7 +450,10 @@ async def fuse_with_groq(
     ]
 
     news_summary = (
-        "\n".join(f"- {a['title']}" for a in news_data[:15])
+        "\n".join(
+            f"- {a['title']}  [scope: {a.get('city') or 'shared diagnostic pool'}]"
+            for a in news_data[:15]
+        )
         or "No recent outbreak news."
     )
     weather_lines = []
@@ -433,6 +508,8 @@ For each city, output a JSON array of risk cards:
 ]
 
 Rules:
+- GEOGRAPHY: Do not create a card for a city unless at least one source explicitly names that city; never attach a disease/death claim from another location.
+- Headlines tagged [scope: shared diagnostic pool] are NOT evidence for any city — use them only to understand the wider picture.
 - Base every card, including each summary, strictly on the provided signals — never invent news, links or statistics
 - {escalation or "Be conservative: only escalate if multiple signals align"}
 - Consider the weather variables provided as relevant to the domain
@@ -559,13 +636,22 @@ async def main():
     print(f"   Lookback: {config['lookback_hours']}h")
     print()
 
+    outbreak_query = " OR ".join(list(config["diseases"]) + ["outbreak"])
+
     async with aiohttp.ClientSession() as session:
-        # Fetch news
+        # Shared diagnostic pool — never used as city evidence.
         print(f"{C.DIM}📰 Fetching news...{C.RESET}")
         news_results = await asyncio.gather(
             *[
                 fetch_news(session, kw, config["lookback_hours"])
                 for kw in config["news_keywords"]
+            ]
+        )
+        # City-scoped news: one query per city, tagged with its city.
+        city_news_results = await asyncio.gather(
+            *[
+                fetch_news(session, outbreak_query, config["lookback_hours"], city=c["name"])
+                for c in config["cities"]
             ]
         )
 
@@ -585,8 +671,9 @@ async def main():
             *[fetch_social_chatter(session, kw) for kw in config["social_keywords"]]
         )
 
-    # Flatten
+    # Flatten — shared pool plus city-scoped items (each tagged with its city).
     all_news = [a for sublist in news_results for a in sublist]
+    all_news += [a for sublist in city_news_results for a in sublist]
     all_social = [p for sublist in social_results for p in sublist]
     all_weather = [w for w in weather_results if "error" not in w]
 
@@ -607,10 +694,15 @@ async def main():
     if not risk_cards:
         print(f"{C.DIM}📊 Using rule-based risk scoring...{C.RESET}")
         for city_data in all_weather:
+            city_news = [
+                a for a in all_news
+                if title_mentions_city(a.get("title"), city_data["city"])
+            ]
+            city_sentiment = simple_sentiment(" ".join(a.get("title", "") for a in city_news))
             card = rule_based_risk(
-                news_count=len(all_news),
+                news_count=len(city_news),
                 weather=city_data,
-                sentiment=sentiment,
+                sentiment=city_sentiment,
                 thresholds=config["thresholds"],
             )
             card["city"] = city_data["city"]
