@@ -344,15 +344,16 @@ async def gather_weather(
     session: aiohttp.ClientSession,
     cities: list,
     fetcher,
-    attempts: int = 2,
-    delay: float = 1.0,
+    attempts: int = 3,
+    delay: float = 2.0,
 ) -> list:
     """Fetch weather for every city, retrying only the ones that failed.
 
     Downstream filters drop any result carrying an "error" key, so a single
     transient failure (e.g. a 429 during the concurrent news/weather/social
-    burst) silently removes that city from the render. One retry round keeps
-    the city grid stable without retrying successful fetches.
+    burst, or CPU starvation on a 0.1-CPU instance) silently removes that city
+    from the render. Two retry rounds keep the city grid stable without
+    retrying successful fetches.
     """
     results = list(await asyncio.gather(*[fetcher(session, city) for city in cities]))
     for _ in range(1, attempts):
@@ -367,6 +368,42 @@ async def gather_weather(
         again = await asyncio.gather(*[fetcher(session, cities[i]) for i in failed])
         for i, r in zip(failed, again):
             results[i] = r
+    return results
+
+
+# Weather is not disease-specific, so one grid entry is enough. Thirty minutes
+# outlives the 5-minute risk-grid cache, so repeat renders on a weak instance
+# cost Open-Meteo nothing and cannot be blanked by a cold-start burst.
+WEATHER_CACHE_TTL_S = 1800
+
+_WEATHER_CACHE: dict = {}
+
+
+def clear_weather_cache() -> None:
+    """Drop the cached weather grid (tests, and an operator force-refresh)."""
+    _WEATHER_CACHE.clear()
+
+
+async def gather_weather_cached(
+    session,
+    cities: list,
+    fetcher,
+    now: float | None = None,
+) -> list:
+    """The weather grid, served from cache within ``WEATHER_CACHE_TTL_S``.
+
+    A failed grid (every city erroring) is never cached: caching it would pin
+    ``cities: 0`` for half an hour, which is worse than retrying the network.
+    """
+    clock = time.monotonic() if now is None else now
+    if _WEATHER_CACHE and clock - _WEATHER_CACHE["at"] <= WEATHER_CACHE_TTL_S:
+        return _WEATHER_CACHE["results"]
+
+    results = await gather_weather(session, cities, fetcher)
+    clock = time.monotonic() if now is None else now
+    if any(isinstance(r, dict) and "error" not in r and "forecast" in r for r in results):
+        _WEATHER_CACHE["at"] = clock
+        _WEATHER_CACHE["results"] = results
     return results
 
 

@@ -4,6 +4,7 @@ Machine-consumable outbreak risk intelligence API.
 """
 import asyncio
 import json
+import logging
 import os
 import re
 import time
@@ -26,7 +27,7 @@ from outbreak_sentinel import (
     clear_city_news_cache,
     default_config,
     gather_city_news,
-    gather_weather,
+    gather_weather_cached,
     iso_published,
     llm_chat,
     llm_provider,
@@ -41,6 +42,7 @@ from outbreak_sentinel import (
 )
 
 app = FastAPI(title="Outbreak Sentinel", version="1.0.0")
+log = logging.getLogger(__name__)
 
 ALLOWED_DRIVER_KINDS = ("news", "social", "weather", "model")
 
@@ -97,8 +99,11 @@ async def fetch_weather(session, city):
         "timezone": "Asia/Karachi", "forecast_days": 7,
     }
     try:
-        async with session.get(url, params=params, timeout=aiohttp.ClientTimeout(total=15)) as r:
+        async with session.get(url, params=params, timeout=aiohttp.ClientTimeout(total=25)) as r:
             if r.status != 200:
+                log.warning(
+                    "weather city=%s error=HTTP %s", city["name"], r.status
+                )
                 return {"city": city["name"], "error": f"HTTP {r.status}"}
             data = await r.json()
             daily = data.get("daily", {})
@@ -111,6 +116,7 @@ async def fetch_weather(session, city):
                          for i in range(len(times))]
             return {"city": city["name"], "forecast": forecast}
     except Exception as e:
+        log.warning("weather city=%s error=%s", city["name"], e)
         return {"city": city["name"], "error": str(e)}
 
 PANIC_WORDS = {"outbreak", "epidemic", "panic", "crisis", "emergency", "surge", "spike", "death", "died", "fatal", "deadly"}
@@ -129,6 +135,9 @@ async def collect_signals(disease: str = "dengue"):
     # News throttles under the per-city burst, and the cache is per disease.
     outbreak_query = f"{str(disease or '').strip()} OR outbreak"
     async with aiohttp.ClientSession() as session:
+        # Weather first: on a 0.1-CPU instance the feedparser burst starves
+        # whatever runs after it, and cached weather makes repeat renders free.
+        weather = await gather_weather_cached(session, CONFIG["cities"], fetch_weather)
         # Shared diagnostic pool — never evidence for a specific city.
         news = await asyncio.gather(*[fetch_news(session, kw, hours) for kw in CONFIG["news_keywords"]])
         # City-scoped news: one query per city, tagged with that city. Wider
@@ -138,7 +147,6 @@ async def collect_signals(disease: str = "dengue"):
         city_news = await gather_city_news(
             session, CONFIG["cities"], fetch_news, outbreak_query, city_hours, disease
         )
-        weather = await gather_weather(session, CONFIG["cities"], fetch_weather)
         social = await asyncio.gather(*[fetch_news(session, kw, 24) for kw in CONFIG["social_keywords"]])
     all_news = [a for sub in news for a in sub]
     all_news += [a for sub in city_news for a in sub]
