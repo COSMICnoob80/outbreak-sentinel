@@ -1050,3 +1050,15 @@ any city; (2) `_pick_sources` appended disease-only matches even when the headli
 - Proofs: `grep -n "GLOBAL" demo/HACKATHON-SUBMISSION.md` → none; `grep -n "100.82.76.91"` → line 13; `env -u PYTHONPATH .venv/bin/python -m pytest -q` → **76 passed**.
 - `demo/SHOTLIST.md` B-roll also corrected: `pytest` `3 passed` → **76 passed** (`env -u PYTHONPATH .venv/bin/python -m pytest -q`), and stale commit hashes `4fef68a`/`dce42d4` → "the two most recent commits".
 - Commit `3bc856e` pushed; work-order file `.beat/wo-soldier-aa.md` deleted.
+
+## 2026-11-20 — Soldier W-1
+
+### Weather signals dead on Render (`cities: 0`): make failures visible, cache, fetch first
+- **Symptom.** `https://outbreak-sentinel.onrender.com` returned `cities: 0` twice, >5 min apart with the cache expired; same code locally returned `cities: 10`. Google News RSS worked from Render, so egress was fine. `api.open-meteo.com` is IPv4-only (Hetzner) and answers from other datacenter IPs — the exact cause remains **unproven**.
+- **Errors are no longer silent.** `app.fetch_weather` logs `weather city=<name> error=<string>` at WARNING on both the non-200 path (`app.py:102-106`) and the exception path (`app.py:117-119`), via `log = logging.getLogger(__name__)` (`app.py:45`). No `basicConfig` was added: Python's last-resort handler emits WARNING records, so the next live `cities: 0` render will name the real error.
+- **Weak-instance resilience.** Open-Meteo timeout `total=15` → `total=25` (`app.py:102`); `gather_weather` retry budget `attempts 2→3`, `delay 1.0→2.0` (`outbreak_sentinel.py:347-348`) — two retry rounds instead of one.
+- **Weather cache.** Disease-independent single `{at, results}` entry `_WEATHER_CACHE`, `WEATHER_CACHE_TTL_S = 1800`, `clear_weather_cache()`, and `gather_weather_cached()` (`outbreak_sentinel.py:374-408`), patterned on `_CITY_NEWS_CACHE`. A hit returns within the TTL with **no network call**. A failed grid (every city erroring) is deliberately **not** cached, so an outage cannot pin `cities: 0` for 30 minutes. `gather_weather` keeps its semantics, so the CLI path (`outbreak_sentinel.py:1036`) and the existing retry tests are unaffected.
+- **Weather fetched first.** `collect_signals` awaits weather before the news and social gathers (`app.py:137-139`) — the feedparser burst can no longer starve Open-Meteo on a 0.1-CPU instance. Returned tuple order is unchanged: `(all_news, all_weather, all_social, sentiment)`.
+- **Tests.** New `tests/test_weather_cache.py` (3): TTL hit skips the network, TTL expiry refetches the grid, `clear_weather_cache()` forces a refetch. Full suite: `env -u PYTHONPATH .venv/bin/python -m pytest -q` → **79 passed** (76 before, +3).
+- **Diff.** `app.py` +14/−3, `outbreak_sentinel.py` +45/−4, `tests/test_weather_cache.py` added. Scoring, narrator contract, `telegraph/*`, dashboard templates, and every cache other than the new weather cache untouched.
+- **Not verified:** that Render now returns `cities: 10`. Needs a deploy and one live `/risk` call; the new WARNING line will explain any remaining failure. Fix commit `5d54ce6` pushed.
