@@ -1062,3 +1062,70 @@ any city; (2) `_pick_sources` appended disease-only matches even when the headli
 - **Tests.** New `tests/test_weather_cache.py` (3): TTL hit skips the network, TTL expiry refetches the grid, `clear_weather_cache()` forces a refetch. Full suite: `env -u PYTHONPATH .venv/bin/python -m pytest -q` → **79 passed** (76 before, +3).
 - **Diff.** `app.py` +14/−3, `outbreak_sentinel.py` +45/−4, `tests/test_weather_cache.py` added. Scoring, narrator contract, `telegraph/*`, dashboard templates, and every cache other than the new weather cache untouched.
 - **Not verified:** that Render now returns `cities: 10`. Needs a deploy and one live `/risk` call; the new WARNING line will explain any remaining failure. Fix commit `5d54ce6` pushed.
+
+## 2026-11-22 — Soldier W-2
+
+### Why
+The dashboard's `wildfire` and `supply-chain` filter buttons showed an empty grid because `/risk`
+only ever emitted bio-surveillance cards. W-2 makes both verticals real (city-scoped Google News +
+Open-Meteo drivers) and makes the main grid read global.
+
+### What shipped
+- **Main grid = 14 cities.** 5 PK (unchanged) + London 51.5072,-0.1276 · New York 40.7128,-74.0060 ·
+  Delhi 28.6139,77.2090 · Jakarta -6.2088,106.8456 · São Paulo -23.5505,-46.6333 · Lagos 6.5244,3.3792 ·
+  Cairo 30.0444,31.2357 · Sydney -33.8688,151.2093 · Tokyo 35.6762,139.6503. Old 5 global cities removed.
+  `region` stays `pakistan` / `global`. `config.yaml` and `default_config()` mirror each other.
+- **Wildfire vertical (6 cities).** Los Angeles, Athens, Sydney (reuses the main-grid entry), Cape Town,
+  Vancouver, Marseille. Per-city query `wildfire OR bushfire` (7-day window). Weather comes from the
+  same Open-Meteo call, now extended with `windspeed_10m_max` → `wind_max`; drivers are hot
+  (`temp_max ≥ 32 °C`), dry (`7-day precip sum ≤ 2 mm`), windy (`≥ 25 km/h`).
+- **Supply-chain vertical (14 main-grid cities).** Per-city query
+  `medicine shortage OR drug shortage OR medical supply chain`. No weather points, so one report
+  (20 pts) stays LOW and zero reports is an honest LOW empty card.
+- **Cards.** `vertical="wildfire"` / `"supply-chain"`, `disease=null`, real city+topic sources only
+  (same geography doctrine: the headline must name the city and the hazard). Scoring reuses
+  `evidence_points` + `LEVEL_BANDS`; 0 reports + no driver = LOW. Bio cards now carry
+  `vertical="bio-surveillance"` explicitly.
+- **Concurrency.** `outbreak_sentinel.CITY_FETCH_CONCURRENCY = 6`; `gather_city_news(..., semaphore=)`
+  wraps every city-scoped fetch. `collect_signals` passes **one shared** `asyncio.Semaphore(6)` to
+  bio + wildfire + supply-chain, so all ~34 city queries batch together. Retry/cache layers untouched.
+- **/risk contract.** `risk_cards` = 14 bio + 14 supply-chain + 6 wildfire. `RiskCard` gains
+  `vertical` and a nullable `disease`; every existing field is unchanged. The dashboard filter buttons
+  read `card.vertical`, so no JS change was needed. Collection timeout raised to 90 s to fit the
+  semaphored refresh on a 0.1-CPU instance. `/telegraph/risk` now slices the 5-tuple and keeps its
+  bio-card behavior.
+
+### Runtime probes (re-run before coding)
+- `news.google.com/rss/search?q=wildfire+smoke+health+when:7d` → **HTTP 200**, 34,182 bytes, 26 items.
+- `...?q=medicine+shortage+OR+drug+shortage+when:7d` → **HTTP 200**, 38,198 bytes, 28 items.
+- `api.open-meteo.com/...daily=windspeed_10m_max,temperature_2m_max,precipitation_sum` → **HTTP 200**,
+  580 bytes, `daily` keys include `windspeed_10m_max`.
+
+### Verified live (own uvicorn 127.0.0.1:8003; 8001 never touched; port released after)
+- `GET /health` → **200**.
+- `GET /risk?disease=dengue&refresh=1` → **200** in 11.96 s. `signals`:
+  `{"cities":19,"news":252,"news_city_scoped":136,"news_shared_pool":116,"social":52,
+  "supply_chain_city_scoped":61,"wildfire_city_scoped":61}` (19 = 14 main + 5 new wildfire cities;
+  Sydney de-duplicated). **34 cards**: bio 14, supply-chain 14, wildfire 6 — every card had a
+  `vertical`. Wildfire examples: Los Angeles **HIGH/65** ("11 city-specific wildfire reports",
+  "Dry 7-day outlook: 0.0 mm rain", 5 sources); Cape Town MODERATE/40 (4 reports); Sydney LOW/20
+  (hot 32.9 °C + wind 26.7 km/h); Athens LOW/0 ("no city-specific wildfire signal"); Marseille
+  LOW/10 (wind 40.6 km/h). Every hazard card had `disease: null`.
+- `env -u PYTHONPATH .venv/bin/python -m pytest -q` → **91 passed, 3 warnings in 5.62 s** (79 before,
+  +12 in `tests/test_verticals.py`).
+
+### Commits
+- `9ed01cc` — `feat(verticals): real wildfire + supply-chain cards, global grid, 6-way city gate`
+- followed by this `docs(spine): checkpoint soldier W-2`
+
+### Honest caveats / for the next owner
+1. Supply-chain city-scoped queries returned 61 items, but none named a main-grid city **and** the
+   shortage vocabulary, so all 14 supply cards are LOW with `0 city-specific supply-chain reports`.
+   That is the intended honest empty state, not a failure — loosen the vocabulary in `VERTICAL_TERMS`
+   only with evidence it improves attribution.
+2. The weather cache is one global entry keyed by nothing; its city union is now main + wildfire.
+   A process that populated the cache before a config change would miss the new cities until restart.
+3. `timezone` is still hardcoded `Asia/Karachi` for every city (pre-existing), so non-PK forecast
+   date labels are offset. Not a risk-score change for these drivers.
+4. No Telegraph settlement was fired (no spend). `telegraph/*` and the narrator contract were not
+   edited; `/telegraph/risk` only adapted to the 5-tuple.
