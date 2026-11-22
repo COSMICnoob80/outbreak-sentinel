@@ -17,3 +17,5 @@ sentinel.log
 history/*.json
 history/alerts.jsonl
 !history/.gitkeep
+.render-env.txt
+.beat/
