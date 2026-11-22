@@ -23,26 +23,74 @@ cities:
     lat: 30.1798
     lon: 66.9750
     region: pakistan
-  - name: Ludhiana
-    lat: 30.9010
-    lon: 75.8573
+  - name: London
+    lat: 51.5072
+    lon: -0.1276
     region: global
-  - name: Amritsar
-    lat: 31.6340
-    lon: 74.8723
+  - name: New York
+    lat: 40.7128
+    lon: -74.0060
     region: global
-  - name: Columbia
-    lat: 34.0007
-    lon: -81.0348
+  - name: Delhi
+    lat: 28.6139
+    lon: 77.2090
     region: global
-  - name: Anchorage
-    lat: 61.2181
-    lon: -149.9003
+  - name: Jakarta
+    lat: -6.2088
+    lon: 106.8456
     region: global
-  - name: Amsterdam
-    lat: 52.3676
-    lon: 4.9041
+  - name: São Paulo
+    lat: -23.5505
+    lon: -46.6333
     region: global
+  - name: Lagos
+    lat: 6.5244
+    lon: 3.3792
+    region: global
+  - name: Cairo
+    lat: 30.0444
+    lon: 31.2357
+    region: global
+  - name: Sydney
+    lat: -33.8688
+    lon: 151.2093
+    region: global
+  - name: Tokyo
+    lat: 35.6762
+    lon: 139.6503
+    region: global
+
+# Wildfire vertical grid — fire-prone cities, monitored with the same pipeline.
+# Sydney is reused from the main grid (weather is fetched once per city).
+wildfire_cities:
+  - name: Los Angeles
+    lat: 34.0522
+    lon: -118.2437
+    region: global
+  - name: Athens
+    lat: 37.9838
+    lon: 23.7275
+    region: global
+  - name: Sydney
+    lat: -33.8688
+    lon: 151.2093
+    region: global
+  - name: Cape Town
+    lat: -33.9249
+    lon: 18.4241
+    region: global
+  - name: Vancouver
+    lat: 49.2827
+    lon: -123.1207
+    region: global
+  - name: Marseille
+    lat: 43.2965
+    lon: 5.3698
+    region: global
+
+# City-scoped Google News queries for the non-bio verticals.
+wildfire_query: "wildfire OR bushfire"
+supply_chain_query: "medicine shortage OR drug shortage OR medical supply chain"
 
 # Diseases to track
 diseases:

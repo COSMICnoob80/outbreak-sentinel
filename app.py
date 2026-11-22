@@ -22,6 +22,7 @@ from publish import publish_cards
 from urllib.parse import urlsplit
 
 from outbreak_sentinel import (
+    CITY_FETCH_CONCURRENCY,
     _extract_json,
     city_query_phrase,
     clear_city_news_cache,
@@ -35,9 +36,11 @@ from outbreak_sentinel import (
     lookback_label,
     rss_outlet,
     rule_based_risk,
+    rule_based_vertical_risk,
     title_matches_topic,
     title_mentions_city,
     topic_terms_for,
+    wildfire_weather_drivers,
     window_label,
 )
 
@@ -95,7 +98,9 @@ async def fetch_weather(session, city):
     url = "https://api.open-meteo.com/v1/forecast"
     params = {
         "latitude": city["lat"], "longitude": city["lon"],
-        "daily": "temperature_2m_max,precipitation_sum,weathercode",
+        "daily": (
+            "temperature_2m_max,precipitation_sum,weathercode,windspeed_10m_max"
+        ),
         "timezone": "Asia/Karachi", "forecast_days": 7,
     }
     try:
@@ -112,7 +117,8 @@ async def fetch_weather(session, city):
                           "temp_max": daily.get("temperature_2m_max", [None]*len(times))[i],
                           "temp_min": daily.get("temperature_2m_min", [None]*len(times))[i],
                           "precipitation": daily.get("precipitation_sum", [None]*len(times))[i],
-                          "weathercode": daily.get("weathercode", [None]*len(times))[i]}
+                          "weathercode": daily.get("weathercode", [None]*len(times))[i],
+                          "wind_max": daily.get("windspeed_10m_max", [None]*len(times))[i]}
                          for i in range(len(times))]
             return {"city": city["name"], "forecast": forecast}
     except Exception as e:
@@ -128,24 +134,58 @@ def sentiment_score(text):
     score = (sum(1 for w in PANIC_WORDS if w in t) * 2 + sum(1 for w in FEAR_WORDS if w in t) - sum(1 for w in HOPE_WORDS if w in t) * 0.5) / 10
     return max(0.0, min(1.0, score))
 
+def _unique_cities(cities: list) -> list:
+    """Cities de-duplicated by name, preserving order (main grid wins)."""
+    seen, out = set(), []
+    for city in cities or []:
+        name = str(city.get("name") or "").strip().lower()
+        if not name or name in seen:
+            continue
+        seen.add(name)
+        out.append(city)
+    return out
+
+
 async def collect_signals(disease: str = "dengue"):
     hours = CONFIG["lookback_hours"]
     city_hours = CONFIG.get("city_lookback_hours", hours)
     # One disease per query: asking for every disease at once is what Google
     # News throttles under the per-city burst, and the cache is per disease.
     outbreak_query = f"{str(disease or '').strip()} OR outbreak"
+    wildfire_cities = CONFIG.get("wildfire_cities") or []
+    wildfire_query = CONFIG.get("wildfire_query") or "wildfire OR bushfire"
+    supply_query = CONFIG.get("supply_chain_query") or (
+        "medicine shortage OR drug shortage OR medical supply chain"
+    )
+    # Weather is needed for the main grid and every wildfire city. Sydney is in
+    # both lists, so de-duplicate before the fetch.
+    weather_cities = _unique_cities(list(CONFIG["cities"]) + list(wildfire_cities))
+    # One gate shared by all city-scoped queries: Google News 429s a burst, so
+    # bio + wildfire + supply-chain together run in batches of six.
+    gate = asyncio.Semaphore(CITY_FETCH_CONCURRENCY)
     async with aiohttp.ClientSession() as session:
         # Weather first: on a 0.1-CPU instance the feedparser burst starves
         # whatever runs after it, and cached weather makes repeat renders free.
-        weather = await gather_weather_cached(session, CONFIG["cities"], fetch_weather)
+        weather = await gather_weather_cached(session, weather_cities, fetch_weather)
         # Shared diagnostic pool — never evidence for a specific city.
         news = await asyncio.gather(*[fetch_news(session, kw, hours) for kw in CONFIG["news_keywords"]])
         # City-scoped news: one query per city, tagged with that city. Wider
         # window (default 7 days) so real city stories are not cut off; the
         # fetch retries once and caches for 10 minutes so one throttled query
         # cannot blank a card that had evidence minutes earlier.
-        city_news = await gather_city_news(
-            session, CONFIG["cities"], fetch_news, outbreak_query, city_hours, disease
+        city_news, wildfire_news, supply_news = await asyncio.gather(
+            gather_city_news(
+                session, CONFIG["cities"], fetch_news, outbreak_query,
+                city_hours, disease, semaphore=gate,
+            ),
+            gather_city_news(
+                session, wildfire_cities, fetch_news, wildfire_query,
+                city_hours, "wildfire", semaphore=gate,
+            ),
+            gather_city_news(
+                session, CONFIG["cities"], fetch_news, supply_query,
+                city_hours, "supply-chain", semaphore=gate,
+            ),
         )
         social = await asyncio.gather(*[fetch_news(session, kw, 24) for kw in CONFIG["social_keywords"]])
     all_news = [a for sub in news for a in sub]
@@ -153,13 +193,23 @@ async def collect_signals(disease: str = "dengue"):
     all_social = [p for sub in social for p in sub]
     all_weather = [w for w in weather if "error" not in w]
     all_text = " ".join(a["title"] for a in all_news + all_social)
-    return all_news, all_weather, all_social, sentiment_score(all_text)
+    vertical_signals = {
+        "wildfire": {
+            "cities": wildfire_cities,
+            "news": [a for sub in wildfire_news for a in sub],
+        },
+        "supply-chain": {
+            "cities": list(CONFIG["cities"]),
+            "news": [a for sub in supply_news for a in sub],
+        },
+    }
+    return all_news, all_weather, all_social, sentiment_score(all_text), vertical_signals
 
 # ── API Models ────────────────────────────────────────────────────────
 
 class RiskCard(BaseModel):
     city: str
-    disease: str
+    disease: Optional[str] = None  # null on hazard verticals (wildfire, supply-chain)
     risk_level: str
     confidence: float
     drivers: list[dict]
@@ -173,6 +223,7 @@ class RiskCard(BaseModel):
     evidence_line: Optional[str] = None        # plain-language coverage line
     risk_score: Optional[int] = None           # deterministic 0-100 score
     evidence_count: Optional[int] = None       # city-specific reports rendered
+    vertical: Optional[str] = None             # "bio-surveillance" | "wildfire" | "supply-chain"
 
 class RiskResponse(BaseModel):
     timestamp: str
@@ -188,7 +239,7 @@ class RiskResponse(BaseModel):
 _CARD_KEYS = ("city", "disease", "risk_level", "confidence", "drivers", "recommendation")
 _CARD_EXTRA_KEYS = (
     "sources", "summary", "chart", "illustration_hint", "region", "evidence_line",
-    "risk_score", "evidence_count",
+    "risk_score", "evidence_count", "vertical",
 )
 _CARD_FIELDS = _CARD_KEYS + _CARD_EXTRA_KEYS
 
@@ -394,7 +445,12 @@ def _build_feed(cards: list, now: datetime, disease: str = "") -> list[dict]:
 
     def card_disease(card: dict) -> str:
         label = str(card.get("disease") or "").strip().lower()
-        return label if label and label != "none" else fallback_disease
+        if label and label != "none":
+            return label
+        vertical = str(card.get("vertical") or "").strip().lower()
+        if vertical and vertical != "bio-surveillance":
+            return vertical
+        return fallback_disease
 
     def add(row: dict, key: str) -> None:
         if not key or key in seen:
@@ -580,6 +636,7 @@ def _attach_card_extras(cards: list, news: list, weather_map: dict, disease: str
     for card in cards:
         city = card.get("city", "Unknown")
         card["region"] = regions.get(str(city).strip().lower(), "global")
+        card.setdefault("vertical", "bio-surveillance")
         w = weather_map.get(str(city).lower())
         city_items = _city_topic_news(news, str(city), disease)
         if card.get("sources"):
@@ -646,6 +703,126 @@ def _build_deterministic_cards(news, weather, social, sent, disease, city=None):
         card["disease"] = label
         cards.append(card)
     return cards, "deterministic"
+
+
+# Subject vocabulary for a vertical headline. A city-scoped query can return
+# unrelated local news, so the title must name both the city and the hazard.
+VERTICAL_TERMS = {
+    "wildfire": (
+        "wildfire", "bushfire", "brush fire", "forest fire", "fire evacuation",
+        "red flag warning", "wildfire smoke",
+    ),
+    "supply-chain": (
+        "medicine shortage", "drug shortage", "medical supply", "medical supplies",
+        "supply chain", "shortage of medicine", "shortage of drugs",
+        "pharmaceutical shortage", "medicine stock",
+    ),
+}
+
+
+def _vertical_topic(title: str, vertical: str) -> bool:
+    lowered = str(title or "").lower()
+    return any(term in lowered for term in VERTICAL_TERMS.get(vertical, ()))
+
+
+def _distinct_vertical_news(news: list, city: str, vertical: str,
+                            limit: int | None = None) -> list[dict]:
+    """City-named, vertical-relevant items with repeat coverage collapsed."""
+    seen, picked = set(), []
+    for item in news or []:
+        title = item.get("title") or ""
+        if not title_mentions_city(title, city):
+            continue
+        if not _vertical_topic(title, vertical):
+            continue
+        key = _normalise_title(title) or (item.get("link") or "")
+        if key in seen:
+            continue
+        seen.add(key)
+        picked.append(item)
+        if limit is not None and len(picked) >= limit:
+            break
+    return picked
+
+
+def _vertical_evidence_line(sources: list, vertical: str) -> str:
+    """Coverage line that counts exactly the links rendered on a vertical card."""
+    window = window_label(CONFIG.get("city_lookback_hours", CONFIG.get("lookback_hours", 24)))
+    count = len(sources)
+    noun = "report" if count == 1 else "reports"
+    if count:
+        line = f"{count} city-specific {vertical} {noun} in the last {window}"
+        latest = _latest_date_label(sources)
+        if latest:
+            line += f" — latest {latest}"
+        return line + "."
+    if vertical == "wildfire":
+        return (
+            f"0 city-specific wildfire reports in the last {window}; "
+            "risk reflects weather only."
+        )
+    return f"0 city-specific supply-chain reports in the last {window}."
+
+
+def _vertical_summary(card: dict) -> str:
+    window = window_label(CONFIG.get("city_lookback_hours", CONFIG.get("lookback_hours", 24)))
+    reports = len(card.get("sources") or [])
+    return (
+        f"{card.get('city', 'Unknown')} shows {card.get('risk_level', 'LOW')} "
+        f"{card.get('vertical', 'hazard')} risk: {reports} city-specific "
+        f"reports in {window}."
+    )
+
+
+def _build_vertical_cards(vertical_signals: dict, weather_map: dict,
+                          city: str | None = None) -> list[dict]:
+    """Wildfire + supply-chain cards from city-scoped real news and forecasts.
+
+    Hazard cards carry ``disease=None`` and ``vertical=<slug>``, so the existing
+    dashboard filter buttons work with no JS change. A card with zero reports
+    and no driver is LOW by construction of ``rule_based_vertical_risk``.
+    """
+    target = str(city).strip().lower() if city else None
+    regions = _region_by_city()
+    window_hours = CONFIG.get("city_lookback_hours", CONFIG["lookback_hours"])
+    cards: list[dict] = []
+    for vertical in ("wildfire", "supply-chain"):
+        payload = (vertical_signals or {}).get(vertical) or {}
+        news = payload.get("news") or []
+        for configured in payload.get("cities") or []:
+            name = str(configured.get("name") or "").strip()
+            if not name or (target and name.lower() != target):
+                continue
+            items = _distinct_vertical_news(news, name, vertical)
+            weather = weather_map.get(name.lower()) or {"city": name}
+            if vertical == "wildfire":
+                base = rule_based_vertical_risk(
+                    len(items), wildfire_weather_drivers(weather),
+                    CONFIG["thresholds"], window_hours=window_hours,
+                    subject="wildfire",
+                    no_signal_text="no city-specific wildfire signal",
+                )
+            else:
+                base = rule_based_vertical_risk(
+                    len(items), [], CONFIG["thresholds"],
+                    window_hours=window_hours, subject="supply-chain",
+                    no_signal_text="no city-specific supply-chain signal",
+                )
+            card = _norm_card(base, "", weather)
+            card["city"] = name
+            card["disease"] = None
+            card["vertical"] = vertical
+            card["region"] = regions.get(
+                name.lower(), str(configured.get("region") or "global")
+            )
+            card["sources"] = [_source_view(n) for n in items[:5]]
+            card["evidence_count"] = len(card["sources"])
+            card["evidence_line"] = _vertical_evidence_line(card["sources"], vertical)
+            card["chart"] = _sparkline(weather)
+            card["illustration_hint"] = f"{vertical}-{card['risk_level'].lower()}"
+            card["summary"] = _vertical_summary(card)
+            cards.append(card)
+    return cards
 
 
 RISK_LEVELS = ("LOW", "MODERATE", "HIGH", "CRITICAL")
@@ -853,17 +1030,22 @@ def _risk_cache_read(key: tuple):
 async def _build_risk(city: Optional[str], disease: str) -> dict:
     """One live grid build: collect signals, build factual cards, then narrate."""
     try:
-        news, weather, social, sent = await asyncio.wait_for(
-            collect_signals(disease), timeout=30
-        )
+        result = await asyncio.wait_for(collect_signals(disease), timeout=90)
     except asyncio.TimeoutError:
         raise HTTPException(status_code=504, detail="Signal collection timed out")
+    news, weather, social, sent = result[:4]
+    vertical_signals = result[4] if len(result) > 4 else {}
 
-    cards, engine = _build_deterministic_cards(news, weather, social, sent, disease, city)
-    cards = _attach_card_extras(cards, news, _weather_by_city(weather), disease)
-    cards, narrated = await narrate_cards(cards, disease)
+    weather_map = _weather_by_city(weather)
+    bio_cards, engine = _build_deterministic_cards(
+        news, weather, social, sent, disease, city
+    )
+    bio_cards = _attach_card_extras(bio_cards, news, weather_map, disease)
+    bio_cards, narrated = await narrate_cards(bio_cards, disease)
     if engine == "deterministic":
         engine = "deterministic+narrator" if narrated else "deterministic"
+    vertical_cards = _build_vertical_cards(vertical_signals, weather_map, city)
+    cards = bio_cards + vertical_cards
     if city and not cards:
         raise HTTPException(status_code=404, detail=f"No data for city: {city}")
 
@@ -876,6 +1058,12 @@ async def _build_risk(city: Optional[str], disease: str) -> dict:
             "news_city_scoped": sum(1 for n in news if n.get("city")),
             "social": len(social),
             "cities": len(weather),
+            "wildfire_city_scoped": len(
+                ((vertical_signals or {}).get("wildfire") or {}).get("news") or []
+            ),
+            "supply_chain_city_scoped": len(
+                ((vertical_signals or {}).get("supply-chain") or {}).get("news") or []
+            ),
         },
         "risk_cards": [{k: c[k] for k in _CARD_FIELDS if k in c} for c in cards],
         "feed": _build_feed(cards, now, disease),
@@ -1114,9 +1302,8 @@ async def telegraph_risk(req: TelegraphRiskRequest):
     risk_card = None
     engine = None
     try:
-        news, weather, social, sent = await asyncio.wait_for(
-            collect_signals(req.disease), timeout=30
-        )
+        signals = await asyncio.wait_for(collect_signals(req.disease), timeout=90)
+        news, weather, social, sent = signals[:4]
         weather_map = _weather_by_city(weather)
         cards, engine = _build_deterministic_cards(
             news, weather, social, sent, req.disease, req.city

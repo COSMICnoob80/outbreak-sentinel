@@ -93,12 +93,30 @@ def default_config() -> dict:
             {"name": "Islamabad", "lat": 33.6844, "lon": 73.0479, "region": "pakistan"},
             {"name": "Peshawar", "lat": 34.0151, "lon": 71.5249, "region": "pakistan"},
             {"name": "Quetta", "lat": 30.1798, "lon": 66.9750, "region": "pakistan"},
-            {"name": "Ludhiana", "lat": 30.9010, "lon": 75.8573, "region": "global"},
-            {"name": "Amritsar", "lat": 31.6340, "lon": 74.8723, "region": "global"},
-            {"name": "Columbia", "lat": 34.0007, "lon": -81.0348, "region": "global"},
-            {"name": "Anchorage", "lat": 61.2181, "lon": -149.9003, "region": "global"},
-            {"name": "Amsterdam", "lat": 52.3676, "lon": 4.9041, "region": "global"},
+            {"name": "London", "lat": 51.5072, "lon": -0.1276, "region": "global"},
+            {"name": "New York", "lat": 40.7128, "lon": -74.0060, "region": "global"},
+            {"name": "Delhi", "lat": 28.6139, "lon": 77.2090, "region": "global"},
+            {"name": "Jakarta", "lat": -6.2088, "lon": 106.8456, "region": "global"},
+            {"name": "São Paulo", "lat": -23.5505, "lon": -46.6333, "region": "global"},
+            {"name": "Lagos", "lat": 6.5244, "lon": 3.3792, "region": "global"},
+            {"name": "Cairo", "lat": 30.0444, "lon": 31.2357, "region": "global"},
+            {"name": "Sydney", "lat": -33.8688, "lon": 151.2093, "region": "global"},
+            {"name": "Tokyo", "lat": 35.6762, "lon": 139.6503, "region": "global"},
         ],
+        # Wildfire vertical grid. Sydney is reused from the main grid; the
+        # weather fetch de-duplicates by name.
+        "wildfire_cities": [
+            {"name": "Los Angeles", "lat": 34.0522, "lon": -118.2437, "region": "global"},
+            {"name": "Athens", "lat": 37.9838, "lon": 23.7275, "region": "global"},
+            {"name": "Sydney", "lat": -33.8688, "lon": 151.2093, "region": "global"},
+            {"name": "Cape Town", "lat": -33.9249, "lon": 18.4241, "region": "global"},
+            {"name": "Vancouver", "lat": 49.2827, "lon": -123.1207, "region": "global"},
+            {"name": "Marseille", "lat": 43.2965, "lon": 5.3698, "region": "global"},
+        ],
+        "wildfire_query": "wildfire OR bushfire",
+        "supply_chain_query": (
+            "medicine shortage OR drug shortage OR medical supply chain"
+        ),
         "diseases": [
             "dengue", "malaria", "cholera", "typhoid", "hepatitis",
             "measles", "pertussis", "mpox",
@@ -415,6 +433,10 @@ CITY_NEWS_MAX_STALE_S = 3600
 CITY_NEWS_ATTEMPTS = 2
 CITY_NEWS_RETRY_DELAY_S = 1.0
 
+# Google News answers a concurrent burst with HTTP 429, so every city-scoped
+# query (bio, wildfire, supply-chain) shares one semaphore and runs in batches.
+CITY_FETCH_CONCURRENCY = 6
+
 _CITY_NEWS_CACHE: dict[tuple[str, str], dict] = {}
 
 
@@ -438,6 +460,7 @@ async def gather_city_news(
     attempts: int = CITY_NEWS_ATTEMPTS,
     delay: float = CITY_NEWS_RETRY_DELAY_S,
     now: float | None = None,
+    semaphore: asyncio.Semaphore | None = None,
 ) -> list[list[dict]]:
     """One city-scoped news query per city, with a retry and a short cache.
 
@@ -448,10 +471,22 @@ async def gather_city_news(
     answers first, and a still-empty refetch falls back to an entry at most an
     hour old. Every city logs ``news city=<name> items=<n> retried=<bool>`` so a
     blank card can be traced to the query that produced it.
+
+    ``semaphore`` caps how many city-scoped requests are in flight at once.
+    ``collect_signals`` passes one shared instance across bio, wildfire and
+    supply-chain so the whole refresh runs in batches of
+    ``CITY_FETCH_CONCURRENCY``.
     """
     clock = time.monotonic() if now is None else now
     keys = [city_news_cache_key(c.get("name"), disease) for c in cities]
     results: list = [None] * len(cities)
+    gate = semaphore or asyncio.Semaphore(CITY_FETCH_CONCURRENCY)
+
+    async def fetch_one(index: int) -> list[dict]:
+        async with gate:
+            return await fetcher(
+                session, keyword, hours, city=cities[index].get("name")
+            )
 
     pending = []
     for i, key in enumerate(keys):
@@ -464,9 +499,7 @@ async def gather_city_news(
     retried = {i: False for i in pending}
 
     if pending:
-        fetched = await asyncio.gather(*[
-            fetcher(session, keyword, hours, city=cities[i].get("name")) for i in pending
-        ])
+        fetched = await asyncio.gather(*[fetch_one(i) for i in pending])
         for i, items in zip(pending, fetched):
             results[i] = list(items or [])
 
@@ -476,9 +509,7 @@ async def gather_city_news(
                 break
             if delay:
                 await asyncio.sleep(delay)
-            again = await asyncio.gather(*[
-                fetcher(session, keyword, hours, city=cities[i].get("name")) for i in empty
-            ])
+            again = await asyncio.gather(*[fetch_one(i) for i in empty])
             for i, items in zip(empty, again):
                 retried[i] = True
                 if items:
@@ -688,6 +719,109 @@ def rule_based_risk(
         "score": score,
         "confidence": round(confidence, 2),
         "drivers": drivers,
+    }
+
+
+# ── Vertical scoring (wildfire / supply-chain) ────────────────────────
+# Same deterministic bands as bio-surveillance. A vertical card is a hazard
+# claim, not a diagnosis, so it carries no disease.
+WILDFIRE_HOT_C = 32.0
+WILDFIRE_DRY_MM = 2.0
+WILDFIRE_WIND_KMH = 25.0
+
+
+def wildfire_weather_drivers(weather: dict | None) -> list[dict]:
+    """Hot / dry / windy drivers from a 7-day Open-Meteo forecast.
+
+    Each flag is a real forecast fact, never an estimate: hot is the max daily
+    temperature, dry is the summed precipitation over the window, windy is the
+    max daily wind speed. An empty forecast yields no drivers (no data means no
+    claim), which keeps a weather-less card at LOW.
+    """
+    forecast = (weather or {}).get("forecast") or []
+    if not forecast:
+        return []
+    temps = [d.get("temp_max") for d in forecast if d.get("temp_max") is not None]
+    rain = [d.get("precipitation") for d in forecast if d.get("precipitation") is not None]
+    winds = [d.get("wind_max") for d in forecast if d.get("wind_max") is not None]
+    drivers: list[dict] = []
+    if temps and max(temps) >= WILDFIRE_HOT_C:
+        drivers.append({
+            "kind": "weather",
+            "text": f"Hot forecast: {max(temps):.1f}°C max",
+        })
+    if rain and sum(rain) <= WILDFIRE_DRY_MM:
+        drivers.append({
+            "kind": "weather",
+            "text": f"Dry 7-day outlook: {sum(rain):.1f} mm rain",
+        })
+    if winds and max(winds) >= WILDFIRE_WIND_KMH:
+        drivers.append({
+            "kind": "weather",
+            "text": f"High wind: {max(winds):.1f} km/h",
+        })
+    return drivers
+
+
+def rule_based_vertical_risk(
+    news_count: int,
+    drivers: list[dict] | None,
+    thresholds: dict,
+    *,
+    window_hours: int = DEFAULT_CITY_LOOKBACK_HOURS,
+    subject: str = "signal",
+    no_signal_text: str | None = None,
+    points_per_driver: int = 10,
+) -> dict:
+    """Score a vertical card from city-scoped reports plus real drivers.
+
+    Reuses the bio bands (`evidence_points`, `LEVEL_BANDS`): 0 reports and no
+    driver scores 0 → LOW, and one report (20 points) stays LOW. Drivers are
+    already-verified facts (e.g. a hot/dry/windy forecast), so they add a fixed
+    credit each instead of being re-derived here.
+    """
+    score = 0
+    out: list[dict] = []
+    window = window_label(window_hours)
+    drivers = list(drivers or [])
+
+    if news_count > 0:
+        score += evidence_points(news_count, thresholds)
+        noun = "report" if news_count == 1 else "reports"
+        out.append({
+            "kind": "news",
+            "text": f"{news_count} city-specific {subject} {noun} in {window}",
+        })
+    if drivers:
+        score += points_per_driver * len(drivers)
+        out.extend(drivers)
+    if news_count == 0 and not drivers:
+        out.insert(0, {
+            "kind": "model",
+            "text": no_signal_text or f"no city-specific {subject} signal",
+        })
+
+    score = min(score, 100)
+    risk_level = "LOW"
+    for floor, label in LEVEL_BANDS:
+        if score >= floor:
+            risk_level = label
+            break
+
+    confidence = min(0.95, 0.4 + score / 100)
+    if news_count == 0 and not drivers:
+        confidence = min(confidence, 0.5)
+    recommendation = (
+        "Monitor — no city-specific reports"
+        if risk_level == "LOW"
+        else "Investigate signals"
+    )
+    return {
+        "risk_level": risk_level,
+        "score": score,
+        "confidence": round(confidence, 2),
+        "drivers": out,
+        "recommendation": recommendation,
     }
 
 
