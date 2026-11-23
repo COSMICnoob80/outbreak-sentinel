@@ -1129,3 +1129,24 @@ Open-Meteo drivers) and makes the main grid read global.
    date labels are offset. Not a risk-score change for these drivers.
 4. No Telegraph settlement was fired (no spend). `telegraph/*` and the narrator contract were not
    edited; `/telegraph/risk` only adapted to the 5-tuple.
+
+## 2026-11-22 — Auditor-1
+
+### Objective readiness audit — judgment only, no product changes
+Read the submission pack, ran the suite (91 passed in 4.66 s), probed the live Render instance,
+ran a local instance on `127.0.0.1:8004` (released afterwards), and fetched the official rules,
+rubric and mission pages. The engineering core is real: live `/risk` returns 34 cards (14 bio,
+14 supply-chain, 6 wildfire) in 0.79 s with `engine: deterministic+narrator`; wildfire Los Angeles
+is **HIGH/65** with 5 real sources and dry-outlook drivers; the live settle tx `0x979515ea…`
+is a real 10,000-unit USDC transfer at block **61,335,917** on Base Sepolia. Two headline claims
+do not survive code inspection: `publish_cards` is **never called**, so no HIGH card becomes a
+receipt (live `/scoreboard` = 0, and `.dockerignore` excludes `history/receipts.jsonl`), and the
+purchased `ranked_answer` is echoed but never used to build the card, so the paid intelligence is
+not causal. The submission still says “no public deployment is claimed” and points judges at
+localhost/tailnet, there is no demo video, the track is mislabelled “03” (Apps & Agents is Track
+01), and the docs cite an invented rubric. Full evidence and the ranked gap list:
+`docs/AUDIT-2026-11-22.md`.
+
+**Verdict:** `Readiness: 45/100 — a genuinely working, live, settled demo whose two headline
+claims (the paid answer drives the card; every HIGH card becomes a receipt) are not true in the
+running code, and whose submission still points judges at localhost.`
