@@ -452,16 +452,29 @@ async def gather_weather(
         ]
         if not failed:
             break
+        # A Retry-After longer than a minute is a hard quota (Open-Meteo returns
+        # a daily-limit 429 with ~9h here). Retrying it cannot succeed and would
+        # only stall the render, so leave those cities failed for this refresh.
+        retryable = [
+            i for i in failed
+            if not (
+                isinstance(results[i], dict)
+                and isinstance(results[i].get("retry_after"), int)
+                and results[i]["retry_after"] > 60
+            )
+        ]
+        if not retryable:
+            break
         retry_after = 0
-        for i in failed:
+        for i in retryable:
             value = results[i].get("retry_after") if isinstance(results[i], dict) else None
             if isinstance(value, int) and value > retry_after:
                 retry_after = value
         wait = max(delay or 0, min(retry_after, 30))
         if wait:
             await asyncio.sleep(wait)
-        again = await asyncio.gather(*[fetch_one(cities[i]) for i in failed])
-        for i, r in zip(failed, again):
+        again = await asyncio.gather(*[fetch_one(cities[i]) for i in retryable])
+        for i, r in zip(retryable, again):
             results[i] = r
     return results
 

@@ -1655,7 +1655,16 @@ Did **not** touch `dashboard/`, `telegraph/*`, `receipts.py`, `Dockerfile`, `.en
   `configured_cities: 19, attempted_cities: 19, ok: 19, failed: 0`,
   `cache: {age_s: 4, cities: 19, cities_ok: 19}`, every row
   `{"ok": true, "http_status": 200, "error": null, "forecast_days": 7}`.
-  Local weather works; Render's failure will now name its own HTTP status/error.
+  Local weather works.
+- **Live diagnosis (2 deployed probes):** `ok: 0, failed: 19`, every row `HTTP 429`;
+  the second probe showed `attempts: 3`. After adding body capture, the 429 body is
+  `{"reason":"Daily API request limit exceeded. Please try again tomorrow.","error":true}`
+  with `Retry-After: 33776` (~9.4 h). **Root cause: Render's shared egress IP has
+  exhausted Open-Meteo's daily quota — it is not a same-second burst and cannot be
+  fixed client-side.** Bounded concurrency (`WEATHER_FETCH_CONCURRENCY = 4`) and
+  `Retry-After` honouring are applied anyway (gentler fetches), but they do not
+  restore weather on this IP. Resolution is a hosting choice: a different egress/IP,
+  or record the demo against a host that has weather (local returns 19/19).
 
 ### 2. Receipt idempotency — stable claim identity
 - `publish._claim_identity` = **city + vertical + disease + day window**
@@ -1683,23 +1692,30 @@ Did **not** touch `dashboard/`, `telegraph/*`, `receipts.py`, `Dockerfile`, `.en
   time; rewriting it would falsify the audit. No `pitch/` hit existed.
 
 ### Tests / gates
-- `env -u PYTHONPATH .venv/bin/python -m pytest -q` → **116 passed, 3 warnings**
+- `env -u PYTHONPATH .venv/bin/python -m pytest -q` → **119 passed, 3 warnings**
   (109 before; +3 `tests/test_debug_weather.py`, +2 receipt-dedupe in
   `test_receipts.py`, +1 vertical parity in `test_verticals.py`, +1 bio parity in
-  `test_scoring_density.py`).
+  `test_scoring_density.py`, +3 weather-fetch in `test_weather_retry.py`: bounded
+  concurrency, `Retry-After` honoured, hard daily quota not retried).
 - New regression tests: same claim with moved count files once; distinct cities
   still file separately; 9 vertical reports → 5 links → driver says 5; same for bio;
   `/debug/weather` fresh-boot note, failed-attempt error/status, never-500.
 - `env -u PYTHONPATH .venv/bin/python -c "import app"` → clean (25 routes).
 
-### Commit
+### Commits
 - `fix(integrity): surface weather errors, dedupe receipts by stable claim, reconcile driver counts`
-- followed by this `docs(spine): checkpoint soldier W-5`
+- `fix(weather): bound Open-Meteo concurrency, honor Retry-After, surface 429 detail` (`b0baeca`)
+- `fix(weather): do not retry a hard daily quota`
+- this `docs(spine): checkpoint soldier W-5` update
 
 ### Honest notes / for the next owner
+- **The weather outage is an Open-Meteo daily quota on Render's shared IP, not a
+  code bug.** No client-side change restores it; choose a different egress/IP or
+  record the demo where weather works (local `cities: 19`). `Retry-After` says
+  ~9.4 h, and the code now refuses to retry a hard quota so a render cannot stall.
 - `/debug/weather` is intentionally unauthenticated (diagnostic, read-only, no
   secrets). It reports in-memory state only, so it is empty until the first render
-  or the startup warm-up fetch.
+  or the startup warm-up fetch. `?probe` was **not** added; it makes no live call.
 - Receipt dedupe is by **day** window: the same event on a later day is a new claim
   by design. Old ledger rows keep their legacy ids; only new filings use the stable
   identity.

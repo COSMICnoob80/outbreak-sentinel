@@ -99,3 +99,27 @@ def test_retry_after_header_lengthens_the_wait(monkeypatch):
 
     assert "forecast" in results[0]
     assert waits == [17]
+
+
+def test_hard_daily_quota_is_not_retried(monkeypatch):
+    sleeps = []
+    real_sleep = asyncio.sleep
+
+    async def fake_sleep(seconds):
+        sleeps.append(seconds)
+        await real_sleep(0)
+
+    monkeypatch.setattr("outbreak_sentinel.asyncio.sleep", fake_sleep)
+    calls = {}
+
+    async def daily_limit(session, city):
+        calls[city["name"]] = calls.get(city["name"], 0) + 1
+        return {**_error(city, status=429), "retry_after": 33776}
+
+    results = asyncio.run(
+        gather_weather(None, CITIES, daily_limit, attempts=3, delay=2.0)
+    )
+
+    assert all("error" in r for r in results)
+    assert set(calls.values()) == {1}
+    assert sleeps == []
