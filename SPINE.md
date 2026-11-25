@@ -1611,3 +1611,20 @@ No product code touched. My one local render appended two receipt rows at `19:07
 **exactly those two were removed** and `history/receipts.jsonl` restored to its
 pre-session 5 rows (left unstaged — it was dirty before this session). `dashboard/index.html`
 was left unstaged (Soldier D-3's beat). No secrets printed.
+
+### Addendum — post-redeploy re-verification (same day, ~19:25 PKT)
+D-3 auto-deployed mid-audit, which gave a fresh boot with an empty weather cache and let
+two open questions be settled read-only (no paid request, no spend). Served console is now
+**byte-identical to HEAD** (109,719 B, md5 `7a1d74cf…`), so no earlier probe hit a stale image.
+1. **Weather outage is persistent, not cached** — `signals.cities: 0` again on the first
+   post-redeploy render (4th consecutive observation, 1st on a cold cache); all wildfire
+   `chart: []`; LA HIGH **55** vs **65** locally. A failed grid is not cached, so it
+   re-attempts and re-fails every render ⇒ upstream of the cache, specific to Render egress.
+2. **Receipt persistence risk observed happening** — across the redeploy `/scoreboard`
+   went **2 → 1**, and `rcpt-a7c3…` returned with a *new* `issued_at` (19:04:54 → 19:22:39),
+   i.e. **re-minted, not restored**; the older `rcpt-0b9a…` is gone. Settlements survived
+   because `state/settlements.jsonl` is git-tracked and ships in the image, while
+   `.dockerignore` excludes only `history/receipts.jsonl` + `history/alerts.jsonl`. That
+   asymmetry is exactly why the settlement proof is durable and the receipt ledger is not.
+Unchanged after redeploy: driver still says 9 vs 5 links; Vancouver MODERATE/30; seeded tx
+still `0xac02bcbb…c4cf`; suite still **109 passed**. **Verdict unchanged: 56/100.**

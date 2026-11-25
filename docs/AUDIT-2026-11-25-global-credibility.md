@@ -185,11 +185,14 @@ strip; and the biggest risk to a recorded demo is that **a Render redeploy wipes
 
 3. **Duplicate receipt minting.** The claim hash includes the volatile report count, so
    one LA event became two receipts (`0b9a…` / `a7c3…`). Key the hash on
-   city+subject+level (+ a day bucket), not on the driver text.
+   city+subject+level (+ a day bucket), not on the driver text. *See the addendum: the
+   mid-audit redeploy wiped both rows, so the live symptom reset to 1 — the mechanism is
+   unchanged and reproduces on any render where the count moves.*
 4. **Driver count vs rendered links.** LA says "9 reports" and shows 5. Truncate the
    driver to `len(sources)`, or render every counted link.
 5. **Receipts do not survive a redeploy.** `.dockerignore` excludes the ledger and no
-   volume is mounted; on a free instance a redeploy is not exotic.
+   volume is mounted; on a free instance a redeploy is not exotic. **Observed mid-audit —
+   see the addendum.**
 6. **Mission 06's "days-to-impact per site" has no implementation.** Either add a
    days-to-impact estimate to wildfire cards or stop claiming mission 06 in that form.
 
@@ -257,3 +260,65 @@ points, which cannot be coded.
   `/telegraph/dashboard`, `/telegraph/ledger`, `/telegraph/assess`,
   `/telegraph/buying-layer`, `/intel/llm`, `/cities`, `eth_getTransactionReceipt`
   (Base Sepolia), `api.open-meteo.com`.
+
+---
+
+## Addendum — post-redeploy re-verification (2026-11-25 ~19:25 PKT)
+
+While this audit was being written, Soldier D-3 (`d2e0563` + checkpoint `43ebe2f`) was
+pushed and **auto-deployed**. That gave a free natural experiment on two open questions,
+so I re-probed read-only. No paid request; no money spent.
+
+**The deployment is now current.** The served console is **byte-identical to HEAD**
+(`109,719 B`, md5 `7a1d74cf…` both sides), so every earlier probe measured current code,
+not a stale image.
+
+### 1. The weather outage is persistent, not a cache artifact — CONFIRMED
+
+My original probes could not distinguish "Open-Meteo is blocked from Render" from "a
+cached empty grid is being re-served". A redeploy is a **fresh boot with an empty
+weather cache**, which settles it. On the first render after the redeploy:
+
+- `signals.cities` = **0** again (4th consecutive observation, 1st on a cold cache)
+- all six wildfire cards `chart: []`
+- LA wildfire HIGH **55**, driver set = news only ("9 city-specific wildfire reports")
+
+Since a *failed* grid is deliberately not cached (`gather_weather_cached`), every render
+re-attempts and re-fails. The outage is therefore upstream of the cache and specific to
+Render's egress — the local control on the identical commit returns `cities: 19` with
+7-point charts and LA HIGH/**65**. Cause remains unproven (logs unreachable), symptom is
+now proven persistent.
+
+### 2. Receipt persistence — the risk is real and was observed happening
+
+Direct before/after across the redeploy:
+
+| | before redeploy | after redeploy |
+|---|---|---|
+| `/scoreboard` | `total_receipts: 2` | **`total_receipts: 1`** |
+| receipt rows | `rcpt-0b9a…` (18:55) + `rcpt-a7c3…` (19:04) | **`rcpt-a7c3…` only, `issued_at` 19:22:39** |
+| `/telegraph/status` | `last_settlement_source: ledger` | **unchanged, same tx** |
+
+Two things follow, and the asymmetry is the point:
+
+- **Receipts were wiped and re-minted, not restored.** `rcpt-a7c3…` came back with a
+  *new* `issued_at` (19:04:54 → 19:22:39), which is re-filing, not recovery. The old
+  `rcpt-0b9a…` is simply gone.
+- **Settlements survived**, because `state/settlements.jsonl` is **tracked in git and
+  ships in the image** (`.dockerignore` excludes only `history/receipts.jsonl` and
+  `history/alerts.jsonl`). That is exactly why the settlement proof is durable and the
+  receipt ledger is not.
+
+So gap item 5 is no longer a prediction: the ledger emptied on a routine deploy, and a
+judge who opened `/receipts` before the redeploy and again after would see the count fall.
+
+### 3. Re-confirmed unchanged after redeploy
+
+- Driver/mismatch: LA driver still **"9"**, `evidence_line` and links still **5**.
+- Vancouver still MODERATE/30 on the two non-incident stories.
+- `/telegraph/status` still seeds tx `0xac02bcbb…c4cf` with `mocked: false`.
+- Suite still **109 passed**.
+
+**Net effect on the verdict: none.** `Readiness: 56/100` stands. The addendum sharpens
+two HIGH findings from "risk" to "observed" and removes the last doubt about the weather
+outage being transient.
