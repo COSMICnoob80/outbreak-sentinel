@@ -106,7 +106,8 @@ _WEATHER_ATTEMPTS: dict[str, dict] = {}
 
 
 def _record_weather_attempt(name: str, *, ok: bool, http_status, error,
-                            forecast_days: int = 0) -> None:
+                            forecast_days: int = 0, retry_after=None,
+                            detail=None) -> None:
     prev = _WEATHER_ATTEMPTS.get(name) or {}
     _WEATHER_ATTEMPTS[name] = {
         "city": name,
@@ -114,6 +115,8 @@ def _record_weather_attempt(name: str, *, ok: bool, http_status, error,
         "http_status": http_status,
         "error": error,
         "forecast_days": forecast_days,
+        "retry_after": retry_after,
+        "detail": detail,
         "attempts": int(prev.get("attempts") or 0) + 1,
         "at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
     }
@@ -131,14 +134,28 @@ async def fetch_weather(session, city):
     try:
         async with session.get(url, params=params, timeout=aiohttp.ClientTimeout(total=25)) as r:
             if r.status != 200:
+                raw_retry = r.headers.get("Retry-After")
+                try:
+                    retry_after = int(raw_retry) if raw_retry else None
+                except (TypeError, ValueError):
+                    retry_after = None
+                try:
+                    detail = (await r.text())[:200]
+                except Exception:
+                    detail = None
                 log.warning(
-                    "weather city=%s error=HTTP %s", city["name"], r.status
+                    "weather city=%s error=HTTP %s retry_after=%s detail=%s",
+                    city["name"], r.status, retry_after, detail,
                 )
                 _record_weather_attempt(
                     city["name"], ok=False, http_status=r.status,
-                    error=f"HTTP {r.status}",
+                    error=f"HTTP {r.status}", retry_after=retry_after,
+                    detail=detail,
                 )
-                return {"city": city["name"], "error": f"HTTP {r.status}"}
+                return {
+                    "city": city["name"], "error": f"HTTP {r.status}",
+                    "retry_after": retry_after, "detail": detail,
+                }
             data = await r.json()
             daily = data.get("daily", {})
             times = daily.get("time", [])

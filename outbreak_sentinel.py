@@ -417,6 +417,11 @@ async def fetch_news(
         return []
 
 
+# Open-Meteo 429s a same-second burst from one egress IP. Nineteen simultaneous
+# requests from Render is exactly that shape, so fetch in small batches instead.
+WEATHER_FETCH_CONCURRENCY = 4
+
+
 async def gather_weather(
     session: aiohttp.ClientSession,
     cities: list,
@@ -430,9 +435,16 @@ async def gather_weather(
     transient failure (e.g. a 429 during the concurrent news/weather/social
     burst, or CPU starvation on a 0.1-CPU instance) silently removes that city
     from the render. Two retry rounds keep the city grid stable without
-    retrying successful fetches.
+    retrying successful fetches. Requests are gated so a whole-grid refresh
+    cannot open 19 sockets to Open-Meteo at once.
     """
-    results = list(await asyncio.gather(*[fetcher(session, city) for city in cities]))
+    gate = asyncio.Semaphore(WEATHER_FETCH_CONCURRENCY)
+
+    async def fetch_one(city):
+        async with gate:
+            return await fetcher(session, city)
+
+    results = list(await asyncio.gather(*[fetch_one(city) for city in cities]))
     for _ in range(1, attempts):
         failed = [
             i for i, r in enumerate(results)
@@ -440,9 +452,15 @@ async def gather_weather(
         ]
         if not failed:
             break
-        if delay:
-            await asyncio.sleep(delay)
-        again = await asyncio.gather(*[fetcher(session, cities[i]) for i in failed])
+        retry_after = 0
+        for i in failed:
+            value = results[i].get("retry_after") if isinstance(results[i], dict) else None
+            if isinstance(value, int) and value > retry_after:
+                retry_after = value
+        wait = max(delay or 0, min(retry_after, 30))
+        if wait:
+            await asyncio.sleep(wait)
+        again = await asyncio.gather(*[fetch_one(cities[i]) for i in failed])
         for i, r in zip(failed, again):
             results[i] = r
     return results
