@@ -1724,3 +1724,80 @@ Did **not** touch `dashboard/`, `telegraph/*`, `receipts.py`, `Dockerfile`, `.en
 - Still open and outside this lane: demo video, receipts surviving a redeploy
   (`.dockerignore` + no volume), mission 06 days-to-impact, Vancouver incident-term
   tightening, organic-growth evidence.
+
+---
+
+## 2026-11-25 — Soldier W-6
+
+**Scope:** MET Norway as the fallback weather provider, so the live Render
+weather outage (Open-Meteo daily quota on a shared egress IP) stops stripping
+the wildfire cards' dry/wind drivers and sparkline. Owned files only:
+`app.py`, `tests/`, one line of `demo/HACKATHON-SUBMISSION.md`, `SPINE.md`.
+Did **not** touch `dashboard/`, `telegraph/*`, `outbreak_sentinel.py`,
+`Dockerfile`, `.env`, `history/receipts.jsonl`.
+
+### Runtime probe (house rule, before coding)
+```
+curl -H 'User-Agent: OutbreakSentinel/1.0 github.com/COSMICnoob80/outbreak-sentinel' \
+  'https://api.met.no/weatherapi/locationforecast/2.0/compact?lat=34.05&lon=-118.24'
+→ HTTP 200 bytes=41082 time=6.41s
+```
+FeatureCollection JSON; `properties.timeseries[]` 92 hourly entries with
+`data.instant.details.air_temperature` (°C), `wind_speed` (m/s) and
+`data.next_1_hours.details.precipitation_amount` (mm). Keyless.
+
+### Provider chain — `app.fetch_weather`
+1. **Open-Meteo** (primary, unchanged shape). NEW: when `OPEN_METEO_API_KEY`
+   is set, `&apikey=<key>` is appended so the quota can be lifted without a
+   code change.
+2. **MET Norway** (`locationforecast/2.0/compact`) when the primary hard-fails
+   for a city: a daily-quota 429, any non-200, or a network error. The hourly
+   timeseries is folded into the daily shape the pipeline already consumes:
+   `temp_max` = max air_temperature, `temp_min` = min, `precipitation` = sum of
+   the hourly `next_1_hours` amounts, `wind_max` = max `wind_speed` × 3.6 to
+   km/h (the unit the fire thresholds use), `weathercode` coarsely mapped from
+   the symbol code. Rows are bucketed by **UTC day** — a documented
+   simplification vs Open-Meteo's Asia/Karachi daily buckets; the drivers read
+   a weekly max/sum, not an hour.
+3. **Last-good forecast** when both providers fail: any city forecast from the
+   past 24 h is served with `stale: true` and `stale_age_s`, never blanked and
+   never fabricated. With no such forecast the city returns an honest error
+   with the combined provider detail.
+
+Etiquette: descriptive `MET_USER_AGENT`, a dedicated `Semaphore(2)` (per
+running loop, separate from the news semaphore), `Retry-After` parsed on a MET
+429, and one request per city per refresh (the 30-min grid cache still bounds
+frequency). `_record_weather_attempt` now stores `provider`
+(`open-meteo | met-norway | none`) and `stale`, so `GET /debug/weather` reports
+which provider served each city.
+
+### Tests / gates
+- `env -u PYTHONPATH .venv/bin/python -m pytest -q` → **125 passed, 3 warnings
+  in 9.17s** (119 before; +6 in `tests/test_met_norway.py`).
+- `env -u PYTHONPATH .venv/bin/python -c "import app"` → clean, 25 routes.
+- New tests: a verbatim recorded MET compact fixture (5 real hourly entries
+  across a UTC midnight) folded to daily rows; Open-Meteo 429 → MET path called
+  → forecast built → `provider: met-norway` recorded; Open-Meteo success
+  records `open-meteo` and never calls MET; `OPEN_METEO_API_KEY` appended;
+  stale forecast served within 24 h; expired stale not served.
+- **Local `127.0.0.1:8006` `/debug/weather`** after the startup warm-up:
+  `configured 19, attempted 19, ok 19, failed 0`, cache
+  `{age_s: 5, cities: 19, cities_ok: 19}`, every row
+  `provider: open-meteo, days: 7, stale: false`. Server stopped, port released.
+
+### Commits
+- `a3e1fba` `fix(weather): fall back to MET Norway when Open-Meteo hard-fails`
+- this `docs(spine): checkpoint soldier W-6` update
+
+### Honest notes / for the next owner
+- The two-provider chain is proven locally with a fake HTTP session and the MET
+  endpoint is proven live by the standalone probe; the live *fallback render*
+  will only be observable after this push deploys (Open-Meteo is quota-dead from
+  Render's IP, so `/debug/weather` there should flip to `met-norway`).
+- `/debug/weather` reads in-memory state only; it is empty until the first
+  render or startup warm-up.
+- `history/receipts.jsonl` was already dirty at session start and is left
+  **unstaged**; no receipt row was written by this beat.
+- Still open and outside this lane: demo video, receipts surviving a redeploy,
+  mission 06 days-to-impact, Vancouver incident-term tightening, organic-growth
+  evidence.
