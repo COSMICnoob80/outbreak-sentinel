@@ -1258,3 +1258,39 @@ fact is permanent and stated here. Testnet only, no mainnet value moved.
 5. The 20 organic-growth points still need dated public updates and a recorded video — no code
    can earn them.
 
+
+---
+
+## 2026-11-23 — Soldier D-1
+
+**Scope:** visual overhaul of the operations console. Edited `dashboard/index.html` and added `.commandcode/design/` artifacts only. Did not touch `app.py`, `outbreak_sentinel.py`, `publish.py`, `telegraph/*`, `config.yaml`, `tests/*`, `Dockerfile`, `.env`, or `history/receipts.jsonl`.
+
+**Design direction:** product / Monitor register. Accent is phosphor signal green (`oklch(0.862 0.190 128)`, #ade84f) on charcoal tinted toward the same hue, chosen because bio-surveillance plus on-chain verification reads as lab/oscilloscope instrumentation; this refuses the cyan-on-dark and indigo-gradient reflexes. One accent role; four severity roles, each always paired with a word.
+
+**Composition:** masthead status → priority band (top open signal + status rail) → one instrument strip → tool line → feed and risk flat-row panels → settlement → timeline. No card-in-card, no equal-tile metric grid, no accent rails.
+
+**System:** OKLCH `:root` tokens; 1.3 type scale (11→33 px); 4/16/36 spacing rhythm via `--s1…--s8`; role radii (6 / 10 / 999-for-status-only); 44 px controls; `:focus-visible`; reduced motion; transform/opacity-only keyframes.
+
+**Changed**
+- `dashboard/index.html` — replaced `<style>` and recomposed the body; JS: `SEV` values now token refs, sparklines use `currentColor`, sort/order/vertical and feed chips are native buttons, card disclosure is a real "Show details" button, `renderPriority()` feeds the new band, per-vertical honest empty copy, `state.ledger` from `/scoreboard`. Every data path is unchanged: `/risk`, `/scoreboard`, `/telegraph/intents`, `/telegraph/stats`, `/telegraph/status`, `/intel/llm`, `POST /telegraph/risk`, chain RPC.
+- `.commandcode/design/checkup-report.{md,html}`, `smell-report.{md,html}`, `design-system.{md,html}` (before + after).
+
+**Findings fixed**
+- Keyboard path for sort/order/vertical filters, feed chips, and card disclosure (was mouse-only).
+- Layout-property animation (`max-height`) and box-shadow glow → display toggle + opacity pulse.
+- 56 six-digit hex literals → 0; one OKLCH token system.
+- Five equal metric tiles → priority band + single instrument strip.
+- 12.5 px inputs → 16 px (iOS zoom); 44 px targets.
+- Nested cards / left accent rails → flat rows and labelled severity chips.
+- Generic empty state → vertical-specific honest copy.
+
+**Verification (2026-11-25)**
+- `env -u PYTHONPATH .venv/bin/python -m pytest -q` → `95 passed, 3 warnings in 4.07s`
+- extracted inline `<script>` + `node --check` → rc 0
+- `#[0-9a-fA-F]{6}` count in `dashboard/index.html` → 0 (2,135 lines)
+- design `check.mjs` → 0 contrast/APCA findings in `dashboard/index.html`; the one remaining stylesheet FAIL is `static/telegraph.html`, outside D-1 ownership
+- headless Chrome renders at 1440×3200, 390×1400, 320×1400; no horizontal overflow
+
+**Vitals:** checkup before 30/60 (Block) → after 60/60 (Approve). Smell before 1/10 (identity failure, 9 tells) → after 10/10 (clean).
+
+**Not done / notes:** `history/receipts.jsonl` was already modified at session start and is left unstaged. No screen-reader session was run; the keyboard path is verified structurally. The labelled sample fallback remains for offline/file rendering.
