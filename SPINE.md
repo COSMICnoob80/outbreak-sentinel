@@ -1628,3 +1628,83 @@ two open questions be settled read-only (no paid request, no spend). Served cons
    asymmetry is exactly why the settlement proof is durable and the receipt ledger is not.
 Unchanged after redeploy: driver still says 9 vs 5 links; Vancouver MODERATE/30; seeded tx
 still `0xac02bcbb…c4cf`; suite still **109 passed**. **Verdict unchanged: 56/100.**
+
+---
+
+## 2026-11-25 — Soldier W-5
+
+**Scope:** the three judge-falsifiable integrity defects from
+`docs/AUDIT-2026-11-25-global-credibility.md` — weather error surfacing, receipt
+dedupe, driver/source count parity — plus the stale test counts. Owned files only:
+`app.py`, `outbreak_sentinel.py`, `publish.py`, `tests/`, `demo/`, `SPINE.md`.
+Did **not** touch `dashboard/`, `telegraph/*`, `receipts.py`, `Dockerfile`, `.env`.
+
+### 1. Live weather error is now surfaceable — `GET /debug/weather`
+- `app.fetch_weather` records **every** outcome in module-level `_WEATHER_ATTEMPTS`
+  via `_record_weather_attempt`: `ok`, `http_status`, raw `error`, `forecast_days`,
+  cumulative `attempts`, UTC `at`. Non-200, exception and success paths all record.
+- `GET /debug/weather` returns, per configured city, that last attempt plus the
+  engine cache snapshot (`weather_cache_state()`: `age_s`, `cities`, `cities_ok`).
+  Before the first attempt it returns `{"note": "no weather attempt yet", …}`.
+  The whole handler is wrapped so it **cannot 500** — an internal failure returns a
+  200 `{"error": …}` object.
+- `collect_signals` logs **one** summary line per refresh after the retry rounds:
+  `weather refresh ok=N failed=M — <city>: <error>; …` at WARNING when any city
+  failed, INFO when all succeeded. Per-city WARNINGs are retained.
+- **Local proof** (own uvicorn `127.0.0.1:8006`, released after):
+  `configured_cities: 19, attempted_cities: 19, ok: 19, failed: 0`,
+  `cache: {age_s: 4, cities: 19, cities_ok: 19}`, every row
+  `{"ok": true, "http_status": 200, "error": null, "forecast_days": 7}`.
+  Local weather works; Render's failure will now name its own HTTP status/error.
+
+### 2. Receipt idempotency — stable claim identity
+- `publish._claim_identity` = **city + vertical + disease + day window**
+  (`YYYY-MM-DD` in PKT). `receipt_id`/`content_hash` derive from that identity, not
+  from the volatile driver text/score. The stored receipt keeps the **same fields**
+  (city, disease, risk_level, score, drivers, vertical, status, issued_at) — schema
+  unchanged, only the id derivation changed.
+- Consequence: the audit's `rcpt-0b9a…` ("8 reports") + `rcpt-a7c3…` ("9 reports")
+  pair now collapses to one receipt. Re-emitting the same card twice in one process
+  lifetime writes one row. The day bucket still lets a live event file a new claim
+  on a later day.
+
+### 3. Driver count == rendered sources — `MAX_SOURCES`
+- New `MAX_SOURCES = 5`. `_build_deterministic_cards` and `_build_vertical_cards`
+  now score **and** render the same capped set; the vertical `[:5]` second
+  truncation is gone. So `drivers` news count, `evidence_count`, `evidence_line`
+  and `sources` are one number by construction. Score-neutral for ≥5 reports
+  because the top evidence band is already 5 (55 pts). The LA "9 vs 5" mismatch
+  cannot reproduce.
+
+### 4. Doc test counts
+- `demo/SHOTLIST.md` 95 → **116**; `demo/HACKATHON-SUBMISSION.md` 94 → **116**.
+- `docs/AUDIT-2026-11-25-global-credibility.md` left **as a dated record** — its
+  `94/95` are quotations of the stale pack and its `109` was the count at audit
+  time; rewriting it would falsify the audit. No `pitch/` hit existed.
+
+### Tests / gates
+- `env -u PYTHONPATH .venv/bin/python -m pytest -q` → **116 passed, 3 warnings**
+  (109 before; +3 `tests/test_debug_weather.py`, +2 receipt-dedupe in
+  `test_receipts.py`, +1 vertical parity in `test_verticals.py`, +1 bio parity in
+  `test_scoring_density.py`).
+- New regression tests: same claim with moved count files once; distinct cities
+  still file separately; 9 vertical reports → 5 links → driver says 5; same for bio;
+  `/debug/weather` fresh-boot note, failed-attempt error/status, never-500.
+- `env -u PYTHONPATH .venv/bin/python -c "import app"` → clean (25 routes).
+
+### Commit
+- `fix(integrity): surface weather errors, dedupe receipts by stable claim, reconcile driver counts`
+- followed by this `docs(spine): checkpoint soldier W-5`
+
+### Honest notes / for the next owner
+- `/debug/weather` is intentionally unauthenticated (diagnostic, read-only, no
+  secrets). It reports in-memory state only, so it is empty until the first render
+  or the startup warm-up fetch.
+- Receipt dedupe is by **day** window: the same event on a later day is a new claim
+  by design. Old ledger rows keep their legacy ids; only new filings use the stable
+  identity.
+- `history/receipts.jsonl` was already dirty at session start and was left
+  **unstaged**; no receipt rows were written by this beat.
+- Still open and outside this lane: demo video, receipts surviving a redeploy
+  (`.dockerignore` + no volume), mission 06 days-to-impact, Vancouver incident-term
+  tightening, organic-growth evidence.
