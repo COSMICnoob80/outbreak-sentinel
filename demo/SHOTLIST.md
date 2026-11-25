@@ -49,7 +49,7 @@ S1–S10 = one continuous take, no cuts. S11–S13 = B-roll inserts. S14 = proof
 - Action: nothing moves; freeze tx strip, block, receipt hash for the full 10s.
 - Cap: `demo/media/10-close.mp4`
 ### S11 · B-roll · tests
-- Terminal: `env -u PYTHONPATH .venv/bin/python -m pytest tests -q` → `116 passed`.
+- Terminal: `env -u PYTHONPATH .venv/bin/python -m pytest tests -q` → `119 passed`.
 - Cap: `demo/media/b1-pytest.mp4`
 ### S12 · B-roll · commits
 - Terminal: `git log --oneline -5` — frame the two most recent commits on screen.
