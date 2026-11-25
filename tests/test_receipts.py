@@ -1,4 +1,5 @@
 import pytest
+from publish import publish_cards
 from receipts import ReceiptStore, make_receipt
 
 def test_make_receipt_is_deterministic(tmp_path):
@@ -37,3 +38,43 @@ def test_store_survives_reload(tmp_path):
     reopened = ReceiptStore(tmp_path / "ledger.jsonl")
     assert reopened.count() == 1
     assert reopened.get(r["receipt_id"])["city"] == "Lahore"
+
+
+def _high_wildfire(report_count):
+    return {
+        "city": "Los Angeles",
+        "disease": None,
+        "vertical": "wildfire",
+        "risk_level": "HIGH",
+        "risk_score": 65,
+        "drivers": [{
+            "kind": "news",
+            "text": f"{report_count} city-specific wildfire reports in 7 days",
+        }],
+    }
+
+
+def test_republishing_same_claim_with_moved_count_files_once(tmp_path):
+    # Audit defect: the same event filed rcpt-0b9a… ("8 reports") and
+    # rcpt-a7c3… ("9 reports") because the volatile count was in the hash.
+    store = ReceiptStore(tmp_path / "ledger.jsonl")
+
+    first = publish_cards([_high_wildfire(9)], store)
+    second = publish_cards([_high_wildfire(5)], store)
+
+    assert len(first) == 1 and len(second) == 1
+    assert first[0]["receipt_id"] == second[0]["receipt_id"]
+    assert store.count() == 1
+    assert store.all()[0]["drivers"] == [
+        "9 city-specific wildfire reports in 7 days"
+    ]
+
+
+def test_distinct_cities_still_file_separate_receipts(tmp_path):
+    store = ReceiptStore(tmp_path / "ledger.jsonl")
+
+    publish_cards([_high_wildfire(9)], store)
+    other = {**_high_wildfire(9), "city": "Cape Town"}
+    publish_cards([other], store)
+
+    assert store.count() == 2

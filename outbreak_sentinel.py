@@ -461,6 +461,22 @@ def clear_weather_cache() -> None:
     _WEATHER_CACHE.clear()
 
 
+def weather_cache_state() -> dict | None:
+    """Read-only snapshot of the cached weather grid, for diagnostics."""
+    if not _WEATHER_CACHE:
+        return None
+    results = _WEATHER_CACHE.get("results") or []
+    ok = sum(
+        1 for r in results
+        if isinstance(r, dict) and "forecast" in r and "error" not in r
+    )
+    return {
+        "age_s": int(time.monotonic() - _WEATHER_CACHE.get("at", time.monotonic())),
+        "cities": len(results),
+        "cities_ok": ok,
+    }
+
+
 async def gather_weather_cached(
     session,
     cities: list,

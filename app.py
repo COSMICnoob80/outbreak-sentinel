@@ -41,6 +41,7 @@ from outbreak_sentinel import (
     title_matches_topic,
     title_mentions_city,
     topic_terms_for,
+    weather_cache_state,
     wildfire_weather_drivers,
     window_label,
 )
@@ -49,6 +50,10 @@ app = FastAPI(title="Outbreak Sentinel", version="1.0.0")
 log = logging.getLogger(__name__)
 
 ALLOWED_DRIVER_KINDS = ("news", "social", "weather", "model", "telegraph")
+
+# Links rendered per card. Scoring uses the same capped set, so the news
+# driver's count, evidence_count, evidence_line and sources are one number.
+MAX_SOURCES = 5
 
 # ── Config ─────────────────────────────────────────────────────────────
 
@@ -95,6 +100,25 @@ async def fetch_news(session, keyword, hours, city=None):
     except Exception:
         return []
 
+# Last weather attempt per city. Recorded on every outcome so `/debug/weather`
+# can surface the real HTTP status/error on a host whose logs are unreachable.
+_WEATHER_ATTEMPTS: dict[str, dict] = {}
+
+
+def _record_weather_attempt(name: str, *, ok: bool, http_status, error,
+                            forecast_days: int = 0) -> None:
+    prev = _WEATHER_ATTEMPTS.get(name) or {}
+    _WEATHER_ATTEMPTS[name] = {
+        "city": name,
+        "ok": bool(ok),
+        "http_status": http_status,
+        "error": error,
+        "forecast_days": forecast_days,
+        "attempts": int(prev.get("attempts") or 0) + 1,
+        "at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+    }
+
+
 async def fetch_weather(session, city):
     url = "https://api.open-meteo.com/v1/forecast"
     params = {
@@ -110,6 +134,10 @@ async def fetch_weather(session, city):
                 log.warning(
                     "weather city=%s error=HTTP %s", city["name"], r.status
                 )
+                _record_weather_attempt(
+                    city["name"], ok=False, http_status=r.status,
+                    error=f"HTTP {r.status}",
+                )
                 return {"city": city["name"], "error": f"HTTP {r.status}"}
             data = await r.json()
             daily = data.get("daily", {})
@@ -121,10 +149,18 @@ async def fetch_weather(session, city):
                           "weathercode": daily.get("weathercode", [None]*len(times))[i],
                           "wind_max": daily.get("windspeed_10m_max", [None]*len(times))[i]}
                          for i in range(len(times))]
+            _record_weather_attempt(
+                city["name"], ok=True, http_status=200, error=None,
+                forecast_days=len(forecast),
+            )
             return {"city": city["name"], "forecast": forecast}
     except Exception as e:
-        log.warning("weather city=%s error=%s", city["name"], e)
-        return {"city": city["name"], "error": str(e)}
+        detail = str(e) or type(e).__name__
+        log.warning("weather city=%s error=%s", city["name"], detail)
+        _record_weather_attempt(
+            city["name"], ok=False, http_status=None, error=detail,
+        )
+        return {"city": city["name"], "error": detail}
 
 PANIC_WORDS = {"outbreak", "epidemic", "panic", "crisis", "emergency", "surge", "spike", "death", "died", "fatal", "deadly"}
 FEAR_WORDS = {"fear", "worried", "concern", "alarm", "warning", "alert", "danger", "threat", "scared", "horrific"}
@@ -189,6 +225,24 @@ async def collect_signals(disease: str = "dengue"):
             ),
         )
         social = await asyncio.gather(*[fetch_news(session, kw, 24) for kw in CONFIG["social_keywords"]])
+    # One line per refresh stating the final weather outcome (post-retry). On a
+    # host whose logs are unreachable, `/debug/weather` reads the same record.
+    failed_weather = [
+        w for w in weather
+        if not isinstance(w, dict) or "error" in w or "forecast" not in w
+    ]
+    if failed_weather:
+        detail = "; ".join(
+            f"{w.get('city', '?')}: {w.get('error', 'no forecast')}"
+            if isinstance(w, dict) else f"{w!r}"
+            for w in failed_weather[:8]
+        )
+        log.warning(
+            "weather refresh ok=%d failed=%d — %s",
+            len(weather) - len(failed_weather), len(failed_weather), detail,
+        )
+    else:
+        log.info("weather refresh ok=%d failed=0", len(weather))
     all_news = [a for sub in news for a in sub]
     all_news += [a for sub in city_news for a in sub]
     all_social = [p for sub in social for p in sub]
@@ -714,9 +768,9 @@ def _build_deterministic_cards(news, weather, social, sent, disease, city=None):
         if not name or (target and name.lower() != target):
             continue
         city_weather = weather_map.get(name.lower()) or {"city": name}
-        # Same deduped set the card will render, so the driver's number, the
-        # evidence line and the links can never disagree.
-        city_news = _distinct_city_news(news, name, disease)
+        # Same deduped, capped set the card will render, so the driver's number,
+        # the evidence line and the links can never disagree.
+        city_news = _distinct_city_news(news, name, disease, limit=MAX_SOURCES)
         city_sentiment = sentiment_score(" ".join(n.get("title", "") for n in city_news))
         base = rule_based_risk(
             len(city_news),
@@ -818,7 +872,7 @@ def _build_vertical_cards(vertical_signals: dict, weather_map: dict,
             name = str(configured.get("name") or "").strip()
             if not name or (target and name.lower() != target):
                 continue
-            items = _distinct_vertical_news(news, name, vertical)
+            items = _distinct_vertical_news(news, name, vertical, limit=MAX_SOURCES)
             weather = weather_map.get(name.lower()) or {"city": name}
             if vertical == "wildfire":
                 base = rule_based_vertical_risk(
@@ -840,7 +894,7 @@ def _build_vertical_cards(vertical_signals: dict, weather_map: dict,
             card["region"] = regions.get(
                 name.lower(), str(configured.get("region") or "global")
             )
-            card["sources"] = [_source_view(n) for n in items[:5]]
+            card["sources"] = [_source_view(n) for n in items]
             card["evidence_count"] = len(card["sources"])
             card["evidence_line"] = _vertical_evidence_line(card["sources"], vertical)
             card["chart"] = _sparkline(weather)
@@ -1206,6 +1260,42 @@ def list_cities():
 @app.get("/diseases")
 def list_diseases():
     return {"diseases": CONFIG["diseases"]}
+
+
+@app.get("/debug/weather")
+def debug_weather():
+    """Diagnostic: the last Open-Meteo attempt per city, raw error included.
+
+    Render's logs are unreachable from outside, so this endpoint exists to answer
+    *why* the live grid reports ``cities: 0``. It reads in-memory state only and
+    must never 500: any internal failure degrades to a 200 error object.
+    """
+    try:
+        configured = _unique_cities(
+            list(CONFIG.get("cities") or []) + list(CONFIG.get("wildfire_cities") or [])
+        )
+        names = [str(c.get("name") or "") for c in configured]
+        rows = [_WEATHER_ATTEMPTS[n] for n in names if n in _WEATHER_ATTEMPTS]
+        cache = weather_cache_state()
+        if not rows:
+            return {
+                "note": "no weather attempt yet",
+                "configured_cities": len(names),
+                "cache": cache,
+                "cities": [],
+            }
+        failed = [row for row in rows if not row.get("ok")]
+        return {
+            "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "configured_cities": len(names),
+            "attempted_cities": len(rows),
+            "ok": len(rows) - len(failed),
+            "failed": len(failed),
+            "cache": cache,
+            "cities": rows,
+        }
+    except Exception as exc:  # a diagnostic must never take the service down
+        return {"error": f"{type(exc).__name__}: {exc}"}
 
 
 # ── Channel adapters: universal inbound hook + health check ───────────

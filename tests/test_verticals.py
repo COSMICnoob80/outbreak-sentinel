@@ -108,6 +108,37 @@ def test_wildfire_headline_without_the_hazard_is_not_evidence():
     assert cards[0]["risk_level"] == "LOW"
 
 
+def test_vertical_driver_count_matches_rendered_sources():
+    # Audit defect: LA said "9 city-specific wildfire reports" while the card
+    # rendered 5 links. The driver count must be the cited set, exactly.
+    news = [
+        {
+            "title": f"Los Angeles wildfire update {n}",
+            "link": f"https://example.com/la-{n}",
+            "outlet": "Example News",
+            "published": "2026-11-20",
+            "city": "Los Angeles",
+        }
+        for n in range(9)
+    ]
+    cards = app_module._build_vertical_cards(
+        {"wildfire": {"cities": [{"name": "Los Angeles", "region": "global"}],
+                      "news": news}},
+        {"los angeles": _forecast(20.0, 25.0, 5.0)},
+    )
+    card = cards[0]
+    rendered = len(card["sources"])
+    assert rendered == app_module.MAX_SOURCES
+    assert card["evidence_count"] == rendered
+    news_driver = next(d for d in card["drivers"] if d["kind"] == "news")
+    assert news_driver["text"].startswith(
+        f"{rendered} city-specific wildfire reports"
+    )
+    assert card["evidence_line"].startswith(
+        f"{rendered} city-specific wildfire reports"
+    )
+
+
 # ── Supply chain ──────────────────────────────────────────────────────
 
 def test_supply_chain_card_from_one_report_stays_low():

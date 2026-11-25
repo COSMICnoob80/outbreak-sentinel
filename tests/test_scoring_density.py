@@ -147,3 +147,22 @@ def test_repeated_live_builds_are_byte_identical(monkeypatch):
     assert json.dumps(first["risk_cards"], sort_keys=True) == json.dumps(
         second["risk_cards"], sort_keys=True
     )
+
+
+def test_bio_driver_count_matches_rendered_sources(monkeypatch):
+    async def signals(disease="dengue"):
+        return _reports("Karachi", 9), _weather_for_all(), [], 0.0
+
+    monkeypatch.setattr(app_module, "_RISK_CACHE", {})
+    monkeypatch.setattr(app_module, "collect_signals", signals)
+    monkeypatch.setenv("SENTINEL_NARRATOR", "0")
+
+    card = TestClient(app_module.app).get(
+        "/risk", params={"city": "Karachi", "disease": "dengue"}
+    ).json()["risk_cards"][0]
+
+    rendered = len(card["sources"])
+    assert rendered == app_module.MAX_SOURCES
+    assert card["evidence_count"] == rendered
+    news_driver = next(d for d in card["drivers"] if d["kind"] == "news")
+    assert news_driver["text"].startswith(f"{rendered} city-specific reports")

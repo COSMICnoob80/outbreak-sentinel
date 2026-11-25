@@ -37,7 +37,7 @@ Walkthrough: `demo/SCRIPT-60s.md` · capture plan: `demo/SHOTLIST.md`
 | 25% | Commercial viability | `pitch/COMMERCIAL-SUMMARY.md` — buyer, what it replaces, unit economics (~$0.01 of Telegraph miner cost per paid assessment; free RSS + Open-Meteo signals), >90% gross-margin target |
 | 10% | Adoption | self-serve surface (`/telegraph/assess`), public ledger (`/telegraph/ledger`), machine-readable API (`/risk`, `/telegraph/risk`) |
 | 5% | Integration | Telegraph REST seam (miner discovery, ask, 402), our own FastAPI service, Render deploy, PWA console |
-| 5% | Reproducibility | `env -u PYTHONPATH .venv/bin/python -m pytest -q` → 94 passed; `render.yaml` blueprint in-repo; run command above |
+| 5% | Reproducibility | `env -u PYTHONPATH .venv/bin/python -m pytest -q` → 116 passed; `render.yaml` blueprint in-repo; run command above |
 | 20% | Organic growth | dated public updates + an invitation to reproduce; every claim in this doc opens a URL a reviewer can check |
 
 ### Settlement evidence
