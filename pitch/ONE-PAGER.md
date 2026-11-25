@@ -2,7 +2,7 @@
 
 > **We don't just alert. We issue a signed prediction and later prove whether we were right.**
 
-*(The name reflects our first vertical — bio-surveillance. The platform is vertical-agnostic: 7 verticals ship today.)*
+*(The name reflects our first vertical — bio-surveillance. The platform is vertical-agnostic: seven verticals are registered as configs, three render live cards today — bio-surveillance, wildfire and supply-chain.)*
 
 ## The problem
 
@@ -34,31 +34,32 @@ That turns "trust our AI" into "check our ledger."
 ## Moat 2 — the agent buys intelligence (Telegraph)
 
 New this build: the agent does not call APIs directly. It buys *ranked*
-intelligence through Telegraph — parallel paid requests, each routed to the
-highest-ranked miner, each returning a receipt; settlement on Base Sepolia
-testnet. The money is first-class JSON and on screen: miner, amount, tx hash,
-network label, plus a clickable Sepolia explorer link and an on-screen testnet
-boundary statement. The seam is real REST (miner discovery, ask, 402 challenge);
-settlement is an honest Mechanism build (mocked, clearly labeled) until a
-wallet is wired. Mainnet flip is a config change, not a code change.
+intelligence through Telegraph — a paid request routed to a miner and settled
+live over x402 on Base Sepolia testnet. The money is first-class JSON and on
+screen: miner, amount, tx hash, network label, plus a clickable Sepolia explorer
+link and an on-screen testnet boundary statement. The purchased answer is a
+**cited driver on the resulting card**, so the buy → card chain is visible in the
+response and on the console. Mainnet flip is a config change, not a code change.
 
-## One engine, seven verticals
+## One engine, seven verticals — three live today
 
 The engine never changes. A vertical is a ~50-line declarative config: what to
 watch, which signals, how to read the weather, and *what `HIGH` means*.
 
-bio-surveillance · pandemic · endemic · wildfire · supply-chain ·
+Registered: bio-surveillance · pandemic · endemic · wildfire · supply-chain ·
 commodity-disruption · financial-stress.
+Rendering live cards on `/risk` today: **bio-surveillance · wildfire · supply-chain**.
+The rest are config-only and produce no cards yet.
 
 Same scoring, same ledger, same resolution loop. Add a vertical, get the whole
 apparatus free. (`verticals/README.md` has the ≤50-line recipe.)
 
 ## Live demo
 
-- `GET /telegraph/dashboard` — money-visible front end, testnet banner unprompted.
-- `POST /telegraph/risk` — paid request → ranked answer + settlement proof + risk card.
-- `GET /telegraph/status` — mode / network / chain / boundary / last settlement.
-- `GET /telegraph/intents` — live miner discovery (134 intents).
+- `https://outbreak-sentinel.onrender.com/telegraph/dashboard` — live console, testnet banner unprompted.
+- `POST /telegraph/risk` — paid request → ranked answer (cited as a card driver) + settlement proof + risk card.
+- `GET /telegraph/status` — mode / network / chain / boundary / last settlement (seeded from the ledger on restart).
+- `GET /telegraph/intents` — live miner discovery (~136 intents).
 - `GET /risk`, `/receipts`, `/receipts/{id}`, `/scoreboard`, `/cities`, `/diseases`.
 - `GET /intel/llm` — provider proof: `{"provider":"commandcode","ok":true}`.
 - `python verify.py <id> CONFIRMED "<source>"` — resolve a call against reality.

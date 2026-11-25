@@ -1,6 +1,6 @@
 """Configuration for the Telegraph buying layer.
 
-Track 03 hard line: Chain ID, token address, price source, RPC URL and miner
+Track 01 hard line: Chain ID, token address, price source, RPC URL and miner
 selection are CONFIG VALUES, not code. Flipping to mainnet is a config change
 (env vars or this module's defaults), not a code change.
 

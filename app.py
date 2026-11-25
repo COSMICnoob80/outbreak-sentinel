@@ -47,7 +47,7 @@ from outbreak_sentinel import (
 app = FastAPI(title="Outbreak Sentinel", version="1.0.0")
 log = logging.getLogger(__name__)
 
-ALLOWED_DRIVER_KINDS = ("news", "social", "weather", "model")
+ALLOWED_DRIVER_KINDS = ("news", "social", "weather", "model", "telegraph")
 
 # ── Config ─────────────────────────────────────────────────────────────
 
@@ -234,6 +234,7 @@ class RiskResponse(BaseModel):
     engine: Optional[str] = None  # "deterministic+narrator" | "deterministic" — which path ran
     cached: bool = False          # served from the 5-minute in-memory grid cache
     cache_age_s: Optional[int] = None
+    receipts: Optional[list[str]] = None  # receipt ids filed for finalized HIGH/CRITICAL cards
 
 
 _CARD_KEYS = ("city", "disease", "risk_level", "confidence", "drivers", "recommendation")
@@ -1048,6 +1049,9 @@ async def _build_risk(city: Optional[str], disease: str) -> dict:
     cards = bio_cards + vertical_cards
     if city and not cards:
         raise HTTPException(status_code=404, detail=f"No data for city: {city}")
+    # Finalization point: narration is done, so every level here is settled.
+    # HIGH/CRITICAL cards become receipts the public ledger can show.
+    receipts = _publish_finalized(cards)
 
     now = datetime.now(timezone(timedelta(hours=5)))
     return {
@@ -1069,6 +1073,7 @@ async def _build_risk(city: Optional[str], disease: str) -> dict:
         "feed": _build_feed(cards, now, disease),
         "feed_refreshed": now.strftime("%H:%M"),
         "engine": engine,
+        "receipts": [r["receipt_id"] for r in receipts],
     }
 
 
@@ -1115,8 +1120,32 @@ async def _start_warm_risk_cache() -> None:
     asyncio.create_task(_warm_risk_cache())
 
 
-LEDGER_PATH = os.path.join(os.path.dirname(__file__), "history", "receipts.jsonl")
+LEDGER_PATH = os.environ.get("SENTINEL_RECEIPTS_PATH") or os.path.join(
+    os.path.dirname(__file__), "history", "receipts.jsonl"
+)
 STORE = ReceiptStore(LEDGER_PATH)
+
+
+def _publish_finalized(cards: list) -> list[dict]:
+    """File a receipt for every HIGH/CRITICAL card that just finalized.
+
+    Drivers are re-normalised through ``ALLOWED_DRIVER_KINDS`` first, so a
+    receipt can never carry provenance the card itself may not claim.
+    """
+    prepared = []
+    for card in cards or []:
+        if not isinstance(card, dict):
+            continue
+        drivers = [
+            d for d in (_norm_driver(raw) for raw in (card.get("drivers") or []))
+            if d
+        ]
+        prepared.append({**card, "drivers": drivers})
+    try:
+        return publish_cards(prepared, STORE)
+    except Exception as exc:
+        log.warning("receipt publish failed: %s", exc)
+        return []
 
 
 @app.get("/receipts")
@@ -1224,7 +1253,7 @@ def health_check():
     }
 
 
-# ── Telegraph buying layer (Track 03: Apps & Agents) ─────────────────────
+# ── Telegraph buying layer (Track 01: Apps & Agents) ─────────────────────
 # Additive only. The agent BUYS ranked intelligence through Telegraph.
 
 from telegraph.config import TELEGRAPH_CONFIG, is_live
@@ -1265,9 +1294,63 @@ def _first_sentence(text) -> Optional[str]:
     return re.split(r"(?<=[.!?])\s+", value, maxsplit=1)[0]
 
 
+def _answer_excerpt(answer) -> str:
+    """The citable part of a purchased ranked answer, or ``""`` when there is none."""
+    if not isinstance(answer, dict):
+        return ""
+    result = answer.get("result")
+    if isinstance(result, dict):
+        for key in ("risk_assessment", "answer", "summary", "text"):
+            if str(result.get(key) or "").strip():
+                return str(result[key]).strip()
+    elif str(result or "").strip():
+        return str(result).strip()
+    for key in ("answer", "summary", "text", "raw"):
+        if str(answer.get(key) or "").strip():
+            return str(answer[key]).strip()
+    return ""
+
+
+def _paid_intelligence(proof: dict) -> dict:
+    """What the purchase actually returned, as a cited card driver.
+
+    The driver is built only from a real ``ranked_answer``. An empty or failed
+    answer is reported as ``unavailable`` with its reason, never filled in.
+    """
+    settlement = proof.get("settlement") or {}
+    miner_name = proof.get("miner_name") or settlement.get("miner_name") or proof.get("miner")
+    amount = proof.get("amount")
+    if amount is None:
+        amount = settlement.get("amount_usd")
+    out = {
+        "status": "unavailable",
+        "miner": miner_name,
+        "amount_usd": amount,
+        "amount_uusdc": settlement.get("amount_uusdc"),
+        "tx_hash": proof.get("tx_hash"),
+        "reason": None,
+        "driver": None,
+    }
+    excerpt = _answer_excerpt(proof.get("ranked_answer"))
+    if not excerpt:
+        out["reason"] = proof.get("error") or "ranked answer was empty"
+        return out
+    try:
+        usd = f"{float(amount):.2f}"
+    except (TypeError, ValueError):
+        usd = "unknown amount"
+    cited = excerpt if len(excerpt) <= 180 else excerpt[:177].rstrip() + "\u2026"
+    out["status"] = "used"
+    out["driver"] = (
+        f"Paid Telegraph intelligence \u2014 miner {miner_name or 'unknown'} "
+        f"({usd} USDC, x402): {cited}"
+    )
+    return out
+
+
 @app.post("/telegraph/risk")
 async def telegraph_risk(req: TelegraphRiskRequest):
-    """Track 03 demo endpoint: route a PAID Telegraph request, return ranked
+    """Track 01 demo endpoint: route a PAID Telegraph request, return ranked
     answer + settlement proof + resulting risk card. Money-visible fields are
     first-class JSON keys."""
     # Settlement must never 500 this endpoint: any failure degrades to a non-500
@@ -1316,6 +1399,20 @@ async def telegraph_risk(req: TelegraphRiskRequest):
             risk_card = dict(cards[0])
     except Exception as exc:  # never fail the demo endpoint on signal hiccups
         risk_card = {"error": str(exc)}
+
+    # The purchase must shape the card, not just decorate the JSON: the paid
+    # answer becomes a cited driver, first in the list so truncation keeps it.
+    paid = _paid_intelligence(proof)
+    if isinstance(risk_card, dict) and not risk_card.get("error"):
+        if paid["driver"]:
+            drivers = list(risk_card.get("drivers") or [])
+            drivers.insert(0, {"kind": "telegraph", "text": paid["driver"]})
+            risk_card["drivers"] = drivers[:6]
+        log.info(
+            "paid intelligence miner=%s amount_usd=%s status=%s reason=%s",
+            paid["miner"], paid["amount_usd"], paid["status"], paid["reason"],
+        )
+        _publish_finalized([risk_card])
 
     # Every settlement field is read defensively — a missing key is reported, not raised.
     settlement = proof.get("settlement") or {}
@@ -1396,6 +1493,7 @@ async def telegraph_risk(req: TelegraphRiskRequest):
         "mode": proof.get("mode"),
         "live": proof.get("live", False),
         "ranked_answer": proof.get("ranked_answer"),
+        "paid_intelligence": paid,
         # Money-visible (first-class):
         "miner": proof.get("miner"),
         "miner_name": proof.get("miner_name"),
@@ -1411,9 +1509,59 @@ async def telegraph_risk(req: TelegraphRiskRequest):
     }
 
 
+def _seeded_settlement() -> Optional[dict]:
+    """Newest on-chain settlement from the persisted ledger, as a proof shape.
+
+    A fresh process holds no in-memory proof, but ``state/settlements.jsonl``
+    ships with the code. Reading the newest settled row means the console can
+    show a real tx on first paint instead of ``0 / none yet``. Only rows that
+    carry a tx and are live-not-mocked qualify (``settlements.is_settled``).
+    """
+    settled_rows = [row for row in settlements.load() if settlements.is_settled(row)]
+    if not settled_rows:
+        return None
+    row = settled_rows[-1]
+    tx = row.get("tx_hash")
+    amount_usd = row.get("amount_usd")
+    miner_name = row.get("miner_name")
+    network_label = row.get("network_label") or TELEGRAPH_CONFIG["network_label"]
+    return {
+        "seeded_from": "state/settlements.jsonl",
+        "tx_hash": tx,
+        "amount_usd": amount_usd,
+        "amount_uusdc": row.get("amount_uusdc"),
+        "miner": row.get("miner"),
+        "miner_name": miner_name,
+        "mode": row.get("mode"),
+        "network_label": network_label,
+        "chain_id": TELEGRAPH_CONFIG["chain_id"],
+        "time_pkt": row.get("time_pkt"),
+        "query": row.get("query"),
+        "city": row.get("city"),
+        "disease": row.get("disease"),
+        "explorer_tx_url": TELEGRAPH_CONFIG["explorer_tx_url"].replace("{tx_hash}", str(tx)),
+        "settlement": {
+            "miner": row.get("miner"),
+            "miner_name": miner_name,
+            "amount_usd": amount_usd,
+            "amount_uusdc": row.get("amount_uusdc"),
+            "tx_hash": tx,
+            "network_label": network_label,
+            "chain_id": TELEGRAPH_CONFIG["chain_id"],
+            "rail": "x402 (live)",
+            "mocked": False,
+        },
+    }
+
+
 @app.get("/telegraph/status")
 def telegraph_status():
     """Testnet boundary stated on screen, unprompted."""
+    proof = getattr(_telegraph_client, "last_proof", None) or None
+    source = "memory" if proof else None
+    if not proof:
+        proof = _seeded_settlement()
+        source = "ledger" if proof else None
     return {
         "live": is_live(),
         "is_live": is_live(),
@@ -1429,8 +1577,9 @@ def telegraph_status():
         "miner_selection": TELEGRAPH_CONFIG["miner_selection"],
         "testnet": True,
         "testnet_boundary": TELEGRAPH_CONFIG["testnet_boundary"],
-        "last_settlement": _telegraph_client.last_proof,
-        "last_settlement_proof": _telegraph_client.last_proof,
+        "last_settlement": proof,
+        "last_settlement_proof": proof,
+        "last_settlement_source": source,
     }
 
 
@@ -1469,7 +1618,7 @@ def telegraph_dashboard():
 
 @app.get("/telegraph/buying-layer")
 def telegraph_buying_layer():
-    """Demo page for the Track 03 buying layer — not the default landing page."""
+    """Demo page for the Track 01 buying layer — not the default landing page."""
     path = os.path.join(os.path.dirname(__file__), "static", "telegraph.html")
     return FileResponse(path, media_type="text/html")
 

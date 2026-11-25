@@ -1,4 +1,4 @@
-"""Telegraph buying layer for Outbreak Sentinel (Track 03: Apps & Agents)."""
+"""Telegraph buying layer for Outbreak Sentinel (Track 01: Apps & Agents)."""
 from .config import TELEGRAPH_CONFIG, is_live
 from .client import TelegraphClient
 

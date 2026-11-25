@@ -9,6 +9,6 @@
 - Paid feeds: $1,000–$5,000/month per seat for news/weather/sentiment; a Bloomberg Terminal ≈ $2,000/month.
 - Net: a mid-size control tower spends roughly $5,000–$15,000/month to be late.
 
-**Our price and unit economics.** Marginal cost per assessment is ~$0.01 of Telegraph miner cost (the default 402 challenge amount) plus free Groq fusion, Open-Meteo weather, and Google News RSS. We can sell a watchlist at $200–$500/month (or $0.50–$1.00 per call) at >90% gross margin.
+**Our price and unit economics.** Marginal cost per *paid* assessment is ~$0.01 of Telegraph miner cost (the default 402 challenge amount) plus the narrator call (Command Code provider, `z-ai/glm-5.3-flash`), Open-Meteo weather and Google News RSS — the free signal grid itself costs nothing to refresh. We can sell a watchlist at $200–$500/month (or $0.50–$1.00 per call) at >90% gross margin.
 
-**Why they switch.** The receipt ledger: every alert is a falsifiable prediction with a later verdict. Buyers can audit our hit rate before trusting us. Incumbents sell alert volume; we sell accountability. That is the 30% commercial-viability argument in one line.
+**Why they switch.** The receipt ledger: every HIGH/CRITICAL card that finalizes is a falsifiable prediction with a later verdict. Buyers can audit our hit rate before trusting us. Incumbents sell alert volume; we sell accountability. That is the commercial-viability argument in one line.

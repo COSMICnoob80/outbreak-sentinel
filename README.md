@@ -116,6 +116,10 @@ The documented path is the **Render blueprint** in [`render.yaml`](render.yaml) 
 free plan, `/health` check, secrets marked `sync: false`. Full click-by-click
 instructions: [`docs/DEPLOY-RENDER.md`](docs/DEPLOY-RENDER.md).
 
+A live instance is running: **https://outbreak-sentinel.onrender.com**
+(console `/telegraph/dashboard` · `/health` · `/receipts` · `/telegraph/status`).
+The free tier sleeps after ~15 minutes idle and takes ~50 s to wake.
+
 ## Verticals in depth — worked example: bio-surveillance
 
 The original (and still first) vertical: watch Pakistan cities for the digital

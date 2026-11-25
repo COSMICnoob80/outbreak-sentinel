@@ -1,4 +1,4 @@
-# Telegraph buying layer (Track 03 — Apps & Agents)
+# Telegraph buying layer (Track 01 — Apps & Agents)
 
 Outbreak Sentinel buys ranked intelligence through Telegraph instead of calling
 APIs directly. This package is the client.
@@ -10,11 +10,15 @@ APIs directly. This package is the client.
   - Ask: `POST https://devnode.telegraphprotocol.com/engine/v1/ask` (body `{"query":...}`)
   - The 402 challenge is actually requested and its `PAYMENT-REQUIRED` header
     is decoded (base64 JSON, `accepts[]`).
-- MOCKED: settlement (x402 payment). No x402 Python SDK / wallet is available in
-  this environment, so no USDC moves. `tx_hash` is synthetic (sha256 of the
-  request) and every proof carries `mode="mocked"` + `mocked=true`.
-  This is Telegraph's **Mechanism** scenario: routing/discovery are real, the
-  denomination is not. State plainly on screen (the front-end does).
+- LIVE (the shipped path when a funded key is present): settlement over x402 on
+  **Base Sepolia** (chain 84532). The exact-scheme accept is selected, an EIP-3009
+  `transferWithAuthorization` is signed, and the facilitator returns a real
+  `settle.transaction` hash. The proof carries `mode="live"`, `mocked=false`,
+  `rail="x402 (live)"`. Verified transactions are listed in
+  `state/hackathon-state.md`.
+- MOCKED (fallback only): with no wallet key configured, settlement degrades to
+  the Mechanism build — no USDC moves, `tx_hash` is synthetic and every proof
+  carries `mode="mocked"` + `mocked=true`. It is never presented as live.
 
 ## Config (all env-overridable; mainnet flip is a config change)
 
@@ -38,3 +42,6 @@ c = TelegraphClient()
 proof = await c.buy_intelligence("Assess dengue outbreak risk in Karachi")
 # proof has: mode, ranked_answer, settlement (miner, amount, tx_hash, network_label, ...)
 ```
+
+`POST /telegraph/risk` surfaces the purchased `ranked_answer` as a **cited
+`telegraph` driver** on the resulting card, so the buy → card chain is visible.

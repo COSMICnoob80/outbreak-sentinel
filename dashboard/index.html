@@ -1824,6 +1824,19 @@ function renderReceipt(d){
       rl.appendChild(document.createTextNode(String(rc.recommendation)));
       block.appendChild(rl);
     }
+    var paid=d.paid_intelligence;
+    if(paid&&typeof paid==="object"){
+      if(paid.status==="used"){
+        var pl=h("p","rc-text");
+        pl.appendChild(h("b",null,"PAID INTELLIGENCE: "));
+        pl.appendChild(document.createTextNode(
+          "miner "+(paid.miner||"unknown")+" \u00b7 cites the purchased answer as a driver above"
+        ));
+        block.appendChild(pl);
+      }else if(paid.reason){
+        block.appendChild(h("div","settle-warn","paid intelligence unavailable: "+String(paid.reason)));
+      }
+    }
     card.appendChild(block);
   }else if(rc&&rc.error){
     card.appendChild(receiptRow("risk card","fusion error \u2014 "+String(rc.error)));

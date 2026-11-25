@@ -3,8 +3,9 @@
 Recorder (OBS or any): **1920x1080**, 60 fps, CQP 18, x264/NVENC, MKV → MP4, audio 48 kHz mono, cursor highlight on, browser zoom 110%.
 Desktop: solid wallpaper **#0b0f17** (matches console bg), dock/tray hidden, Do Not Disturb on, bookmarks bar off, one 1920x1080 window.
 
-Pre-flight: `env -u PYTHONPATH .venv/bin/python -m uvicorn app:app --host 127.0.0.1 --port 8001`
-Console: `http://127.0.0.1:8001/telegraph/dashboard` — SIMPLE mode, feed loaded before you hit record.
+Pre-flight (live): wake `https://outbreak-sentinel.onrender.com/health` and wait ~50 s (free tier sleeps after ~15 min idle).
+Console: `https://outbreak-sentinel.onrender.com/telegraph/dashboard` — SIMPLE mode, feed loaded before you hit record.
+Local fallback: `env -u PYTHONPATH .venv/bin/python -m uvicorn app:app --host 127.0.0.1 --port 8001` → `http://127.0.0.1:8001/telegraph/dashboard`
 S1–S10 = one continuous take, no cuts. S11–S13 = B-roll inserts. S14 = proof wall.
 
 ### S1 · 0:00–0:05 · hook
@@ -29,11 +30,11 @@ S1–S10 = one continuous take, no cuts. S11–S13 = B-roll inserts. S14 = proof
 - Cap: `demo/media/05-wait.mp4`
 ### S6 · 0:30–0:33 · LIVE SETTLEMENT PROVEN
 - URL: same page.
-- Action: rest cursor on the green `LIVE SETTLEMENT PROVEN` chip, then on the `SETTLED ON-CHAIN` strip `0x3825fa28…`.
+- Action: rest cursor on the green `LIVE SETTLEMENT PROVEN` chip, then on the `SETTLED ON-CHAIN` strip showing **the hash the console just returned**.
 - Cap: `demo/media/06-chip.mp4`
 ### S7 · 0:33–0:35 · explorer
-- URL: click the tx link → `sepolia.basescan.org/tx/0x3825fa28…`
-- Action: scroll to the confirmation row; zoom so block **48,410,853** is readable aloud.
+- URL: click that tx link → `sepolia.basescan.org/tx/<hash>`
+- Action: scroll to the confirmation row; zoom so **this tx's block number** is readable aloud. Read it from the page, never from a script.
 - Cap: `demo/media/07-explorer.mp4`
 ### S8 · 0:35–0:42 · breadth
 - URL: back to console.
@@ -48,22 +49,23 @@ S1–S10 = one continuous take, no cuts. S11–S13 = B-roll inserts. S14 = proof
 - Action: nothing moves; freeze tx strip, block, receipt hash for the full 10s.
 - Cap: `demo/media/10-close.mp4`
 ### S11 · B-roll · tests
-- Terminal: `env -u PYTHONPATH .venv/bin/python -m pytest tests -q` → `76 passed`.
+- Terminal: `env -u PYTHONPATH .venv/bin/python -m pytest tests -q` → `95 passed`.
 - Cap: `demo/media/b1-pytest.mp4`
 ### S12 · B-roll · commits
 - Terminal: `git log --oneline -5` — frame the two most recent commits on screen.
 - Cap: `demo/media/b2-gitlog.mp4`
 ### S13 · B-roll · second settlement
-- URL: `sepolia.basescan.org/tx/0xfbfe793e…` — block **48,407,506**; hover From/To and the USDC transfer log.
+- URL: any other verified tx from `state/hackathon-state.md`, e.g. `sepolia.basescan.org/tx/0x979515ea…` (block **61,335,917**) or `0xac02bcbb…` (block **59,597,289**); hover From/To and the USDC transfer log.
 - Cap: `demo/media/b3-tx2.mp4`
 ### S14 · Proof wall (closing card, 3–4s)
 - Stack: basescan tx page (zoomed to block) · console `LIVE SETTLEMENT PROVEN` chip · engine `deterministic+narrator` badge + PRO strip (miner, micro-units, scheme).
-- Caption: `0.01 USDC · Base Sepolia · 19.95 USDC left on 0x7b3654…` · Cap: `demo/media/14-proof-wall.mov`
+- Caption: `0.01 USDC · Base Sepolia · testnet` · Cap: `demo/media/14-proof-wall.mov`
 
 ## Cut list (if long)
 Drop in order: S11, S12, S13. Never drop S5 (wait), S6 (chip), S7 (block), S14 (proof wall).
 
 ## Do not
 - Do not fake or re-type a tx hash; every hash on screen must open a real explorer URL.
+- Do not read a block number from this file — read it from the explorer page for the tx you actually landed.
 - Do not hide the testnet banner or call the chain mainnet.
 - Do not speed-ramp S5 — the wait is credibility, not dead air.

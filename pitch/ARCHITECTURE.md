@@ -24,7 +24,7 @@ swapping it is a config change.
     │          └──────────────┬───┴──────────────────┘                          │
     │                         ▼                                                 │
     │                 ┌───────────────┐                                         │
-    │                 │  FUSION       │  Groq LLM  ── role + thresholds          │
+    │                 │  FUSION       │  LLM narrator ── role + thresholds      │
     │                 │  (per loc.)   │  from the active Vertical                │
     │                 └───────┬───────┘                                         │
     │                         ▼  rule-based fallback if LLM unavailable         │
