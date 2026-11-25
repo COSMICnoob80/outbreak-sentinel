@@ -1377,3 +1377,102 @@ any of them, and the driver number is the filtered count by construction.
 - `topic_terms` remains the broad vocabulary used to recognise a *named other*
   disease and on-topic drivers; it is no longer the evidence gate. Do not
   re-widen the gate by pointing `title_matches_topic` back at it.
+
+
+---
+
+## 2026-11-25 — Soldier D-2
+
+**Scope:** console polish beat after an independent vision judge scored the D-1
+redesign **6/10** on a live render of 34 cards. Edited `dashboard/index.html`
+and this checkpoint only. Did not touch `app.py`, `outbreak_sentinel.py`,
+`tests/*`, `telegraph/*`, `config.yaml`, `publish.py`, or `history/receipts.jsonl`
+(Soldier W-4 owned the engine lane concurrently).
+
+**Method:** measured, not assumed. Built a headless harness that serves the real
+page against a stubbed `/risk` payload of 34 cards (disease cards plus
+`disease:null` wildfire/supply-chain hazard cards, all four levels, 5 cards with
+a chart series, 1 all-zero series), then diffed computed geometry between
+`git show HEAD:` and the working tree at 1440 / 1080 / 1000 / 960 / 390 / 320 px.
+Contrast was computed by converting the OKLCH tokens to sRGB and running WCAG
+relative luminance — the ratios below are measured, not eyeballed.
+
+### Fixed
+
+**1. "unspecified hazard" (both nodes).** Root cause was not a display string:
+`toCard()` hardcoded `vert:"bio-surveillance"` for every live card and used the
+literal as the `hazard` fallback. Hazard cards ship `disease:null` +
+`vertical:<slug>` from `_build_vertical_cards`, so the vertical was arriving at
+the console and being discarded. Added `verticalOf(raw)` / `hazardLabel(disease,
+vertical)` beside `normStr`; the live branch now passes the real `vertical`
+through and the subject line falls back to the vertical's own name.
+- `.top-alert-title`: `Tehran · unspecified hazard` → `Tehran · wildfire`
+- card `.subj` unique values: `["unspecified hazard","dengue"]` →
+  `["supply-chain","dengue","wildfire"]`
+- settlement receipt `rc-haz` (a third site with the same literal) shares the helper
+- `grep -c 'unspecified hazard'` → **0**
+- Side effect, intended: the `wildfire` / `supply-chain` filter buttons can now
+  match live cards. They previously matched none, because every live card claimed
+  `bio-surveillance`.
+
+**2. Severity colour ramp.** Retuned the four `--sev-*` hues into a real ramp —
+red 22 → orange-red 44 → amber 92 → neutral 146 — so levels separate by hue, not
+only lightness. Added a `--sev-*-edge` role: LOW maps to `--line-strong`, so a
+0/100 card is structurally quiet rather than faintly warm. Colour now carries on
+a 3px left edge per card and on the priority band's top rule.
+- measured `border-left-color` per level: CRITICAL `oklch(0.845 0.172 22)`,
+  HIGH `oklch(0.845 0.152 44)`, MODERATE `oklch(0.872 0.130 92)`,
+  LOW `oklch(0.392 0.016 146)` — all four were `oklch(0.945 0.006 146)` (ink) before
+- `.top-alert` top border: accent green → the leading card's level hue
+  (`top-alert lv-CRITICAL` measures `oklch(0.845 0.172 22)`)
+- a 0/100 LOW card renders a neutral hairline edge, no warm tone
+
+**3. Density.** Two columns at ≥1000px, and the series-less sparkline placeholder
+collapsed from a reserved 150px well to one quiet line.
+- page height at 1440×900: **8413 px → 4929 px** (−41%) on the same 34 cards
+- card grid: 1 column → **2 columns** (`442.953px 442.953px` at 1440px,
+  `289.5px 289.5px` at 1000px); still 1 column at ≤960px, untouched on mobile
+- card height 197 → 175 px at 1440px
+- series-less foot: **0** empty `.mini` nodes emitted (the JS no longer creates
+  one), foot height **17 px**, honest wording kept — `no series` /
+  `no rain forecast`
+- 5 series cards keep their sparkline and `rain forecast · 7d` label
+
+**4. Contrast.** Every ink token already cleared WCAG AA on ratio — that was
+never the defect. The real problem was 11px text sitting at the faint end of the
+ladder on video. Re-spaced the ladder to `0.950 / 0.890 / 0.858 / 0.812` (was
+`0.945 / 0.875 / 0.835 / 0.770`), so the faint step measures **10.20:1** on
+`--surface-1` and **9.47:1** on `--surface-2`. Promoted card `.evidence` — the
+`0 city-specific dengue reports…` line, which is substance not chrome — from
+faint to dim, and the series-less foot label from faint to dim for the same
+reason.
+
+### Verification (2026-11-25)
+- `env -u PYTHONPATH .venv/bin/python -m pytest -q` →
+  `109 passed, 3 warnings in 3.93s`
+- extracted inline `<script>` + `node --check` → **rc 0**
+- `grep -oE '#[0-9a-fA-F]{3,8}\b' dashboard/index.html | wc -l` → **0**
+- `grep -c 'unspecified hazard' dashboard/index.html` → **0**
+- no CDN / web-font references (`grep -cE 'https?://(fonts|cdn|unpkg|cdnjs)'` → 0)
+- design `check.mjs` → `0 FAIL, 1 WARN · colors: 23 oklch, 0 hex`; the single
+  WARN (pill radius on 8 selectors) is byte-identical on `HEAD`, so this beat
+  introduced no new finding
+- fetch paths diffed against `HEAD` → **identical** (`/risk`, `/scoreboard`,
+  `/telegraph/intents`, `/telegraph/stats`, `/telegraph/status`, `/intel/llm`,
+  `POST /telegraph/risk`); response-field reads diffed → **identical**
+- 34/34 cards render in the harness, 0 console errors, no horizontal page
+  overflow at any tested width (985 < 1000 at the tightest 2-column case)
+
+### Not done / honest notes
+- The optional `/design style swiss` repaint was **skipped deliberately** — the
+  brief said polish beats new paint and all four fixes above are
+  measurement-backed. Nothing about the Swiss direction was evaluated live.
+- `history/receipts.jsonl` was already modified at session start and is left
+  unstaged; no receipt rows were written by this beat.
+- The 2-column rule is a viewport media query (`min-width:1000px`), as specified,
+  not a container query — the cards panel is narrower than the viewport because of
+  the 30/70 split, so a container query would be the cleaner long-term primitive.
+- Judge-facing gaps this beat does **not** address: on the demo payload the signal
+  feed reads `0 / 0 items` (empty panel) and the instruments print `deterministic`
+  as the engine value, which reads as debug output. Both are content/data-wiring
+  questions outside this file.
