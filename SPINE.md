@@ -1294,3 +1294,86 @@ fact is permanent and stated here. Testnet only, no mainnet value moved.
 **Vitals:** checkup before 30/60 (Block) → after 60/60 (Approve). Smell before 1/10 (identity failure, 9 tells) → after 10/10 (clean).
 
 **Not done / notes:** `history/receipts.jsonl` was already modified at session start and is left unstaged. No screen-reader session was run; the keyboard path is verified structurally. The labelled sample fallback remains for offline/file rendering.
+
+---
+
+## 2026-11-25 — Soldier W-4
+
+### Why — the false-HIGH London dengue card
+The city-scoped query is `{disease} OR outbreak`, so Google News returns every
+outbreak story in that city. `title_matches_topic` then accepted the generic
+`topic_terms` vocabulary (`outbreak`, `cases`, `hospitalised`, ...), so an Ebola
+or Legionnaires' story tagged to London counted as dengue evidence. Live result:
+London dengue **HIGH / confidence 0.9** on three "city-specific reports", only
+one of which was actually about dengue.
+
+### The rule now enforced
+A headline is evidence for a bio card **only** when it contains:
+- the disease term itself (case-insensitive), or
+- for vector-borne diseases only, the vector family word — dengue/malaria:
+  `mosquito|mosquitoes|aedes|anopheles` — and the caller has already required
+  the headline to name the city.
+Generic outbreak vocabulary never qualifies. Water/sanitation is not a vector
+family, so cholera/typhoid still require the disease word. A headline about a
+different disease never counts for a dengue card.
+
+### What shipped
+- **`outbreak_sentinel.py`** — `default_config()` gains `evidence_terms`
+  (per-disease names/synonyms) and `vector_terms` (dengue/malaria only);
+  new `_terms_for` / `evidence_terms_for` / `vector_terms_for`;
+  `title_matches_topic` rewritten to accept only those (fallback for an unknown
+  disease is its own name, so it can never match by accident).
+- **`config.yaml`** — mirrors both vocabularies with the rationale in comments.
+- **`app.py`** — `_mentions_other_disease` changed from "any other disease's
+  broad topic term" to "a named other disease / another disease's distinctive
+  vocabulary", ignoring shared words (`outbreak`, `cases`, `fever`,
+  `hospitalised`); returns early when the queried disease is named. This fixed a
+  pre-existing false negative where a genuine "Karachi dengue fever" headline was
+  discarded because `fever` was a typhoid/malaria topic term. The legacy/LLM
+  source-enrichment branch now applies the same other-disease guard.
+  `VERTICAL_TERMS` wildfire now includes `blaze`/`smoke`; supply-chain now
+  includes `shortage`/`stockout`/`out of stock`.
+- **`tests/test_disease_evidence.py`** (new, 15 tests) — the London set (one real
+  dengue-vector headline + Ebola + Legionnaires + covid) yields exactly 1
+  evidence item and a LOW/MODERATE card; Karachi with 5 genuine dengue
+  headlines stays HIGH; vector words count only for their disease and only when
+  city-tagged; water/sanitation is not cholera/typhoid evidence; wildfire
+  requires blaze/smoke; supply-chain requires shortage/stockout; config mirrors
+  the defaults.
+
+### Why filter once at the predicate
+`_city_topic_news` → `_distinct_city_news` is the single source for the score
+(`rule_based_risk(len(city_news))`), the `evidence_count`, the
+`"N city-specific reports"` driver, `evidence_line` and `sources`
+(`_pick_sources`). Filtering there means a filtered-out source cannot appear in
+any of them, and the driver number is the filtered count by construction.
+
+### Verified
+- `env -u PYTHONPATH .venv/bin/python -m pytest -q` → **109 passed, 3 warnings in 3.48s**
+  (95 before; +14 net new, one pre-existing driver test tightened by the
+  `_mentions_other_disease` change and still green).
+- Live, own uvicorn `127.0.0.1:8006` (8001 never touched, port released after),
+  `GET /risk?city=London&disease=dengue&refresh=1` → **HTTP 200 in 6.22 s**,
+  `engine: deterministic+narrator`, London bio card:
+  `LOW`, `confidence 0.6`, `risk_score 20`, `evidence_count 1`,
+  `evidence_line: "1 city-specific dengue report in the last 7 days — latest 23 Nov."`,
+  driver `news | 1 city-specific report in 7 days`,
+  source `UK steps up trapping efforts after mosquitoes that can spread dengue breed in London homes - Yahoo`.
+  The Ebola and Legionnaires stories are absent from `sources`.
+  The supply-chain London card is the honest LOW empty (`0 city-specific
+  supply-chain reports in the last 7 days`).
+
+### Commit
+- `5c4fc74` — `fix(engine): disease-term evidence gate — another disease's outbreak is never this card's evidence`
+- followed by this `docs(spine): checkpoint soldier W-4`
+
+### Honest notes / for the next owner
+- `history/receipts.jsonl` was already dirty at session start; the live renders
+  appended two real wildfire receipts (`rcpt-cfce603f4ca9`, `rcpt-70c6d6e8484d`,
+  issued 2026-11-25 18:35 PKT). The ledger is left **unstaged**; no receipt rows
+  were written by the fix commit.
+- `_NON_SPECIFIC_TOPIC_TERMS` is a code constant, not config: it lists words that
+  identify no disease. Tunable disease wording stays in `config.yaml`.
+- `topic_terms` remains the broad vocabulary used to recognise a *named other*
+  disease and on-topic drivers; it is no longer the evidence gate. Do not
+  re-widen the gate by pointing `title_matches_topic` back at it.
