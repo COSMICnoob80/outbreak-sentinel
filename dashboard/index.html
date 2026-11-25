@@ -18,12 +18,13 @@
     --line-strong:oklch(0.392 0.016 146);
 
     /* ---- ink: ladder re-spaced for 11px text on video ----
-       every step keeps >=10:1 on --surface-1, so the faint step reads at
-       2xs size without the top step losing its authority */
-    --ink:oklch(0.950 0.006 146);
-    --ink-mid:oklch(0.890 0.010 146);
-    --ink-dim:oklch(0.858 0.011 146);
-    --ink-faint:oklch(0.812 0.011 146);
+       measured on --surface-1: ink 16.63:1, mid 14.78:1, dim 13.48:1,
+       faint 12.18:1 — the secondary steps sit well clear of AA 4.5:1 and
+       of the 7:1 AAA line, so 2xs metadata reads on a dim display */
+    --ink:oklch(0.968 0.006 146);
+    --ink-mid:oklch(0.928 0.010 146);
+    --ink-dim:oklch(0.898 0.011 146);
+    --ink-faint:oklch(0.866 0.011 146);
 
     /* ---- accent: phosphor signal green (instrument panel, verified state) ---- */
     --accent:oklch(0.862 0.190 128);
@@ -350,9 +351,11 @@
   .card-foot .mini{flex:0 0 auto;min-width:0;line-height:0;}
   .card-foot .mini svg{width:150px;height:22px;display:block;}
   .card-foot .mfoot{flex:none;font-family:var(--font-mono);font-size:var(--fs-2xs);color:var(--ink-dim);white-space:nowrap;}
-  /* no-series foot is one quiet line, not a reserved 150px well */
-  .card-foot.no-series .mfoot{color:var(--ink-faint);}
-  .card-foot.no-series .mfoot::before{content:"\2014\00a0";opacity:.7;}
+  /* a card with no chart series carries one muted inline tick on its existing
+     hazard line, so the honest wording costs no extra row (the tag row wraps) */
+  .tag-series{display:inline-flex;align-items:center;gap:var(--s1);margin-left:var(--s2);font-family:var(--font-mono);font-size:var(--fs-2xs);color:var(--ink-faint);white-space:nowrap;}
+  .tag-series::before{content:"\2014";opacity:.7;}
+  .card-id .subj .settled-chip{margin-left:var(--s2);}
   .settled-chip{flex:none;display:inline-flex;align-items:center;font-family:var(--font-mono);font-size:var(--fs-2xs);color:var(--accent);border:1px solid var(--accent-line);border-radius:var(--r-control);padding:1px var(--s2);}
   .asked-line{font-size:var(--fs-xs);color:var(--ink-faint);line-height:1.5;margin-top:var(--s2);}
   .asked-line b{color:var(--ink-dim);font-weight:650;}
@@ -1014,7 +1017,8 @@ function renderCard(c){
   var top=h("div","card-top");
   var idBox=h("div","card-id");
   idBox.appendChild(h("div","place",c.city));
-  idBox.appendChild(h("div","subj",c.hazard));
+  var subjEl=h("div","subj",c.hazard);
+  idBox.appendChild(subjEl);
   var tags=h("div","tags");
   tags.appendChild(h("span","tag vert",c.vert));
   if(c.receipt)tags.appendChild(h("span","tag receipt","receipt "+c.receipt));
@@ -1133,28 +1137,33 @@ function renderCard(c){
   var ms=miniSeries(c);
   var allZero=ms.values.length>0&&ms.values.every(function(v){return Number(v)===0;});
   var hasSeries=ms.values.length>=2&&!allZero;
-  var footEl=h("div","card-foot "+(hasSeries?"has-series":"no-series"));
+  var seriesLabel=allZero?"no rain forecast":ms.label;
+  var footChip=null;
+  if(c.settledTx){
+    var chipTx=String(c.settledTx);
+    footChip=h("a","settled-chip","\u2713 receipt "+shortHash(chipTx));
+    footChip.href=EXPLORER_TX+chipTx;
+    footChip.target="_blank";
+    footChip.rel="noopener noreferrer";
+    footChip.title="Paid assessment settled on-chain: "+chipTx;
+    footChip.addEventListener("click",function(e){e.stopPropagation();});
+  }
   if(hasSeries){
+    var footEl=h("div","card-foot has-series");
     var mini=h("div","mini");
     mini.style.color="var(--sev)";
     mini.innerHTML=sparkSVG(ms.values,SEV[c.level].c,"mn"+(uidSeq++));
     mini.title=ms.title;
     footEl.appendChild(mini);
+    footEl.appendChild(h("span","mfoot",ms.label));
+    if(footChip)footEl.appendChild(footChip);
+    art.appendChild(footEl);
+  }else{
+    var noSeries=h("span","tag-series",seriesLabel);
+    noSeries.title=ms.title;
+    subjEl.appendChild(noSeries);
+    if(footChip)subjEl.appendChild(footChip);
   }
-  var foot=h("span","mfoot",hasSeries?ms.label:(allZero?"no rain forecast":ms.label));
-  if(!hasSeries)foot.title=ms.title;
-  footEl.appendChild(foot);
-  if(c.settledTx){
-    var chipTx=String(c.settledTx);
-    var chip=h("a","settled-chip","\u2713 receipt "+shortHash(chipTx));
-    chip.href=EXPLORER_TX+chipTx;
-    chip.target="_blank";
-    chip.rel="noopener noreferrer";
-    chip.title="Paid assessment settled on-chain: "+chipTx;
-    chip.addEventListener("click",function(e){e.stopPropagation();});
-    footEl.appendChild(chip);
-  }
-  art.appendChild(footEl);
 
   function applyPinned(){
     art.classList.toggle("pinned",!!pinned[c.id]);
