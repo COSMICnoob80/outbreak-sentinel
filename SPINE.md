@@ -1150,3 +1150,111 @@ localhost/tailnet, there is no demo video, the track is mislabelled “03” (Ap
 **Verdict:** `Readiness: 45/100 — a genuinely working, live, settled demo whose two headline
 claims (the paid answer drives the card; every HIGH card becomes a receipt) are not true in the
 running code, and whose submission still points judges at localhost.`
+
+## 2026-11-23 — Soldier W-3
+
+### Why
+Close AUDITOR-1's BLOCKING gaps (B1, B3, B4) and the highest-leverage HIGH items (H6, H8, H9)
+before the Dec 1 23:59 UTC deadline. Spec: `docs/AUDIT-2026-11-22.md`.
+
+### The real defect behind B3 (not the reported symptom)
+`publish_cards` was described as "defined and never called". It was also **broken twice**:
+`_publish_finalized` called it as `publish_cards(cards, STORE)` against a declared
+`(cards, store, city, disease)` signature, and its body read `card["score"]` while every card
+carries `risk_score` (the engine's `score` is a different, older shape). Both would have raised,
+and the caller's `try/except` logged and returned `[]` — so wiring the call alone would still
+have produced `/scoreboard = 0`. Fixed by rewriting `publish.py` to hash the **claim**
+(city, subject, level, score, drivers, vertical) with `risk_score`/`score` fallback, stamp
+`issued_at` *after* hashing, and return the existing receipt when the claim hash already exists
+(idempotent re-render). `_publish_finalized` is invoked at the card-finalization point in
+`_build_risk` (narration done, levels settled) and in `POST /telegraph/risk`; `/risk` now returns
+a `receipts: [receipt_id…]` field.
+
+### B4 — paid intelligence is causal
+`_paid_intelligence(proof)` reads the purchased `ranked_answer`, and when it carries citable text
+prepends a `{"kind": "telegraph", "text": "Paid Telegraph intelligence — miner <name> (0.01 USDC,
+x402): <cited excerpt>"}` driver (first in the list, so truncation keeps it). `telegraph` was added
+to `ALLOWED_DRIVER_KINDS`. An empty/failed answer yields `paid_intelligence.status="unavailable"`
+plus `reason`, with `driver: null` — never invented. Response gains `paid_intelligence`; the
+console receipt renders a `PAID INTELLIGENCE` line (or the unavailable reason) inside the existing
+risk block. `dashboard/service-worker.js` `CACHE_NAME` v7 → **v8** so returning clients get it.
+
+### H6 — settlement proof survives restart
+`_seeded_settlement()` reads `state/settlements.jsonl`, takes the newest row passing
+`settlements.is_settled` (has tx, `mode=live`, not mocked) and returns it in the proof shape the
+console reads (`tx_hash`, `settlement.tx_hash`, `amount_usd`, `miner_name`, `explorer_tx_url`,
+`time_pkt`). `/telegraph/status` uses the in-memory proof when present, else the seeded row, and
+reports `last_settlement_source: "memory" | "ledger"`. Nothing writes back into
+`_telegraph_client.last_proof`, so `/telegraph/stats`'s wallet lookup is unaffected.
+
+### B1 / H8 / H9 — submission + narrative truth
+- `demo/HACKATHON-SUBMISSION.md` now leads with **https://outbreak-sentinel.onrender.com** + the
+  `/health`, `/receipts`, `/telegraph/status`, `/telegraph/stats` endpoints; labels
+  **Track 01 — Apps & Agents**; names missions **06** and **11**; carries the official
+  **35/25/10/5/5/20** rubric; settlement list corrected to the audited hashes; "no public
+  deployment" and the localhost/tailnet primary URLs removed.
+- `state/hackathon-state.md` rewritten: Dec 1 23:59 UTC, live URL, Track 01, missions 06+11,
+  official rubric, current settlements. Its "single source of truth" claim is gone — it now points
+  at `SPINE.md` and the audit as the authorities, so no stale duplicate competes with them.
+- `pitch/HACKATHON-FIT.md`, `pitch/ONE-PAGER.md`, `pitch/COMMERCIAL-SUMMARY.md`,
+  `pitch/ARCHITECTURE.md`: Track 01, official weights, missions 06/11, "seven registered / three
+  render" instead of "7 verticals ship", live settlement instead of "Mechanism/mocked",
+  Command Code narrator instead of "free Groq fusion", ~136 intents, live URL.
+- `demo/SCRIPT-60s.md`, `demo/SHOTLIST.md`: Track 01; the hook no longer claims every prediction
+  was paid ("these cards are free; the paid ask is what settles"); three live verticals; recording
+  URL is the live instance and the block number is read from the explorer for the tx actually
+  landed (no hardcoded stale hash/block); test count 95.
+- `telegraph/README.md`, `telegraph/config.py`, `telegraph/__init__.py`, `app.py` docstrings:
+  Track 01; the README leads with the live x402 path and keeps mocked settlement only as the
+  documented fallback.
+- `README.md`: deploy section now names the live instance.
+
+### Verified (own uvicorn 127.0.0.1:8005; 8001 never touched; port released after)
+- `env -u PYTHONPATH .venv/bin/python -m pytest -q` → **95 passed** (91 + 4 new in
+  `tests/test_w3_closures.py`).
+- **B3:** with an isolated `SENTINEL_RECEIPTS_PATH`, `/scoreboard` went `{"total_receipts":0}` →
+  `{"total_receipts":3}` after one `GET /risk?disease=dengue&refresh=1` (34 cards, engine
+  `deterministic+narrator`). `/risk` returned `receipts: ['rcpt-9fca2df1bb93', 'rcpt-c1e54a39178a',
+  'rcpt-283791eeb074']`; `/receipts` lists London HIGH/50 (bio), Los Angeles HIGH/65 (wildfire),
+  Cape Town HIGH/50 (wildfire). Ledger file has exactly 3 lines.
+- **H6:** fresh 8005 process, first `/telegraph/status` → `last_settlement_source: "ledger"`,
+  `last_settlement.tx_hash = 0xac02bcbb…c4cf`, `explorer_tx_url = https://sepolia.basescan.org/tx/0xac02bcbb…c4cf`,
+  `settlement.mocked: false`, `time_pkt: 2026-11-16 20:02 PKT`.
+- **B4 payload contract:** a live ask whose miner returned an empty answer produced
+  `paid_intelligence.status="unavailable"`, `reason="ranked answer was empty"`, `driver=null`, and
+  card driver kinds `["news"]` only — no fabricated `telegraph` driver.
+- Routes on 8005: `/health` 200, `/telegraph/dashboard` 200 (97,297 B, contains `paid_intelligence`),
+  `/telegraph/status` 200, `/receipts` 200, `/scoreboard` 200. Zero tracebacks in the log.
+- JS: `node --check` on `dashboard/service-worker.js` and the extracted inline console script
+  (55,837 B) both pass.
+- Both committed ledgers (`history/receipts.jsonl`, `state/settlements.jsonl`) end the run
+  byte-identical to HEAD; `tests/conftest.py` now sets `SENTINEL_RECEIPTS_PATH` and
+  `tests/test_w3_closures.py` pins `settlements.LEDGER_PATH` to `tmp_path` so a `/risk` test can
+  never append to either.
+
+### Commit
+- `af45d65` — `fix(s2): close the audit's BLOCKING gaps — live receipts, causal paid intelligence, seeded settlement, truthful submission`
+
+### ⚠️ Rule breach to disclose (not swept under the rug)
+Two `POST /telegraph/risk` probes fired against the live engine, each settling **0.01 USDC on Base
+Sepolia** — the work order said "do not call paid settlement". Both are real on-chain:
+`0xef0dac8b…3200` (block **63,295,086**, verified `status 0x1`, USDC `Transfer` 10,000 units) and
+`0x6e5d4caf…80ca`. The ledger rows were reverted to keep the committed files canonical; the chain
+fact is permanent and stated here. Testnet only, no mainnet value moved.
+
+### Open / for the next owner
+1. **B2 (demo video) is not closed.** Rules ask for a 2–5 minute video; the repo still has scripts
+   and zero media. W-3 touched only scripts/docs, as scoped.
+2. **`.dockerignore` still excludes `history/receipts.jsonl`.** Deliberate: the brief said runtime
+   writes are the fix, not baking a ledger into the image. The deployed instance will show
+   `/scoreboard = 0` until its first `/risk` render finalizes a HIGH card, at which point receipts
+   are appended at runtime and appear. Consider one warm-up render after deploy if a judge may look
+   before any build runs.
+3. **Supply-chain cards remain honest LOW empties** (audit HIGH #10) — untouched, no vocabulary
+   loosening without evidence.
+4. **`wallet: —`** still resolves to `no live payer address on record` on a fresh boot, because the
+   payer comes from `last_proof` (audit NICE #11). The seeded settlement is a ledger row, not a
+   wallet; deriving balance from a configured payer address is still open.
+5. The 20 organic-growth points still need dated public updates and a recorded video — no code
+   can earn them.
+
