@@ -27,6 +27,7 @@ from outbreak_sentinel import (
     city_query_phrase,
     clear_city_news_cache,
     default_config,
+    evidence_terms_for,
     gather_city_news,
     gather_weather_cached,
     iso_published,
@@ -582,15 +583,38 @@ def _mentions_any(text: str, terms) -> bool:
     return any(re.search(rf"\b{re.escape(str(t))}\b", lowered) for t in terms)
 
 
+# Symptom/outbreak words shared by several diseases. They identify no disease,
+# so on their own they can never make a headline "about another disease".
+_NON_SPECIFIC_TOPIC_TERMS = frozenset({
+    "outbreak", "cases", "case", "hospitalised", "hospitalized",
+    "infection", "disease", "fever",
+})
+
+
 def _mentions_other_disease(text: str, disease: str) -> bool:
-    """True when the text carries another disease's distinctive vocabulary."""
+    """True when the text carries another disease's distinctive vocabulary.
+
+    The queried disease wins outright: a story that names it is evidence for it
+    even if it also mentions a vaccine. Otherwise another disease's own
+    vocabulary (``typhoid``, ``measles``, ``vaccine``) flags the text, while
+    generic words every disease shares (``outbreak``, ``cases``, ``fever``,
+    ``hospitalised``) are ignored — that is how a genuine "Karachi dengue fever"
+    story used to be discarded.
+    """
+    if _mentions_any(text, evidence_terms_for(CONFIG, disease)):
+        return False
     own_terms = set(topic_terms_for(CONFIG, disease))
+    own_terms |= set(evidence_terms_for(CONFIG, disease))
     own = str(disease or "").strip().lower()
     for other, terms in (CONFIG.get("topic_terms") or {}).items():
         key = str(other).strip().lower()
         if key == own or key == "default":
             continue
-        distinctive = [t for t in terms if str(t).lower() not in own_terms]
+        distinctive = [
+            str(t).strip().lower() for t in (terms or [])
+            if str(t).strip().lower() not in own_terms
+            and str(t).strip().lower() not in _NON_SPECIFIC_TOPIC_TERMS
+        ]
         if _mentions_any(text, distinctive):
             return True
     return False
@@ -648,6 +672,8 @@ def _attach_card_extras(cards: list, news: list, weather_map: dict, disease: str
                 if not title_mentions_city(s.get("title"), str(city)):
                     continue
                 if not title_matches_topic(s.get("title"), disease, CONFIG):
+                    continue
+                if _mentions_other_disease(s.get("title"), disease):
                     continue
                 known = by_link.get(s.get("url") or "", {})
                 source = _source_view({**known, **s})
@@ -710,13 +736,11 @@ def _build_deterministic_cards(news, weather, social, sent, disease, city=None):
 # unrelated local news, so the title must name both the city and the hazard.
 VERTICAL_TERMS = {
     "wildfire": (
-        "wildfire", "bushfire", "brush fire", "forest fire", "fire evacuation",
-        "red flag warning", "wildfire smoke",
+        "wildfire", "bushfire", "blaze", "smoke", "brush fire", "forest fire",
+        "fire evacuation", "red flag warning",
     ),
     "supply-chain": (
-        "medicine shortage", "drug shortage", "medical supply", "medical supplies",
-        "supply chain", "shortage of medicine", "shortage of drugs",
-        "pharmaceutical shortage", "medicine stock",
+        "shortage", "supply chain", "stockout", "out of stock", "medicine stock",
     ),
 }
 

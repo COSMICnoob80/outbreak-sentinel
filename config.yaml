@@ -213,6 +213,47 @@ topic_terms:
     - hospitalised
     - hospitalized
 
+# Evidence vocabulary — the ONLY vocabulary that makes a headline evidence for a
+# card. Generic outbreak words (outbreak, cases, hospitalised, vaccine) live in
+# topic_terms above and are deliberately not accepted here: they say an outbreak
+# happened, never which disease it was. A headline about a different disease
+# (ebola, legionnaires, covid) is never evidence for a dengue card.
+evidence_terms:
+  dengue:
+    - dengue
+  malaria:
+    - malaria
+    - plasmodium
+  cholera:
+    - cholera
+  typhoid:
+    - typhoid
+    - enteric fever
+  hepatitis:
+    - hepatitis
+  measles:
+    - measles
+    - rubeola
+  pertussis:
+    - pertussis
+    - whooping cough
+  mpox:
+    - mpox
+    - monkeypox
+
+# Vector families. A headline already tagged to the city counts when it names
+# the vector, even without the disease name. Water/sanitation is NOT a vector
+# family: a cholera or typhoid card still requires the disease word itself.
+vector_terms:
+  dengue:
+    - mosquito
+    - mosquitoes
+    - aedes
+  malaria:
+    - mosquito
+    - mosquitoes
+    - anopheles
+
 # Risk thresholds for rule-based scoring (used as fallback)
 thresholds:
   # Score credit per city-specific report count, measured over

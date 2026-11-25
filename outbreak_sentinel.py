@@ -170,6 +170,28 @@ def default_config() -> dict:
                 "hospitalised", "hospitalized",
             ],
         },
+        # Evidence vocabulary: a headline is evidence for a disease ONLY when it
+        # names that disease outright (or, for vector-borne diseases, names the
+        # vector that carries it). Generic outbreak words live in ``topic_terms``
+        # above and are deliberately NOT accepted here — they say an outbreak
+        # happened, never which disease it was.
+        "evidence_terms": {
+            "dengue": ["dengue"],
+            "malaria": ["malaria", "plasmodium"],
+            "cholera": ["cholera"],
+            "typhoid": ["typhoid", "enteric fever"],
+            "hepatitis": ["hepatitis"],
+            "measles": ["measles", "rubeola"],
+            "pertussis": ["pertussis", "whooping cough"],
+            "mpox": ["mpox", "monkeypox"],
+        },
+        # Vector families. A city-tagged headline naming the vector counts for
+        # its diseases even without the disease name. Water/sanitation is NOT a
+        # vector family: a cholera card still requires the word cholera.
+        "vector_terms": {
+            "dengue": ["mosquito", "mosquitoes", "aedes"],
+            "malaria": ["mosquito", "mosquitoes", "anopheles"],
+        },
         "thresholds": {
             "sentiment_high": 0.6,
             "sentiment_medium": 0.3,
@@ -264,13 +286,50 @@ def topic_terms_for(config: dict, disease: str) -> list[str]:
     return [str(t).strip().lower() for t in terms if str(t).strip()]
 
 
+def _terms_for(config: dict, key: str, disease: str) -> list[str]:
+    """Resolve a per-disease vocabulary list (exact key, then head noun)."""
+    table = (config or {}).get(key) or {}
+    name = str(disease or "").strip().lower()
+    terms = table.get(name)
+    if not terms and " " in name:
+        # "hepatitis c" is still hepatitis; resolve the head noun.
+        terms = table.get(name.split()[0])
+    return [str(t).strip().lower() for t in (terms or []) if str(t).strip()]
+
+
+def evidence_terms_for(config: dict, disease: str) -> list[str]:
+    """Words that name this disease outright — never generic outbreak words.
+
+    A disease with no configured vocabulary falls back to its own name, which
+    keeps an unknown query honest: no headline can match it by accident.
+    """
+    terms = _terms_for(config, "evidence_terms", disease)
+    if terms:
+        return terms
+    name = str(disease or "").strip().lower()
+    if not name:
+        return []
+    return [name.split()[0]] if " " in name else [name]
+
+
+def vector_terms_for(config: dict, disease: str) -> list[str]:
+    """Vector family for a vector-borne disease (empty for all others)."""
+    return _terms_for(config, "vector_terms", disease)
+
+
 def title_matches_topic(title: str, disease: str, config: dict) -> bool:
-    """True when the headline talks about the queried disease (word boundaries)."""
+    """True only when a headline can be evidence for THIS disease.
+
+    Either it names the disease outright (``dengue``, ``whooping cough``), or —
+    for vector-borne diseases only — it names the vector that carries it
+    (``mosquitoes``, ``aedes``). Generic outbreak vocabulary (``outbreak``,
+    ``cases``, ``hospitalised``) is never enough: it says an outbreak happened,
+    not which disease it was. Callers check the city separately, so a vector
+    word only counts once the headline is already tagged to that city.
+    """
     text = str(title or "").lower()
-    return any(
-        re.search(rf"\b{re.escape(t)}\b", text)
-        for t in topic_terms_for(config, disease)
-    )
+    terms = evidence_terms_for(config, disease) + vector_terms_for(config, disease)
+    return any(re.search(rf"\b{re.escape(t)}\b", text) for t in terms)
 
 
 # ── Signal Fetchers ───────────────────────────────────────────────────
