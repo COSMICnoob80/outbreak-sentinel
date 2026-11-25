@@ -8,6 +8,7 @@ import logging
 import os
 import re
 import time
+import weakref
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
@@ -101,13 +102,41 @@ async def fetch_news(session, keyword, hours, city=None):
         return []
 
 # Last weather attempt per city. Recorded on every outcome so `/debug/weather`
-# can surface the real HTTP status/error on a host whose logs are unreachable.
+# can surface the real HTTP status/error and the provider that served the city.
 _WEATHER_ATTEMPTS: dict[str, dict] = {}
+
+# Last good forecast per city, for the case where every upstream provider is
+# down. The grid cache (outbreak_sentinel) serves anything within 30 minutes;
+# this store is the longer safety net: up to 24 hours, clearly labelled stale.
+_WEATHER_LAST_GOOD: dict[str, dict] = {}
+WEATHER_STALE_MAX_S = 24 * 3600
+
+# MET Norway asks that clients identify themselves with a descriptive
+# User-Agent and keep concurrency modest. Two in flight is the documented
+# etiquette for locationforecast; this gate is separate from the news semaphore.
+MET_USER_AGENT = "OutbreakSentinel/1.0 github.com/COSMICnoob80/outbreak-sentinel"
+MET_FORECAST_URL = "https://api.met.no/weatherapi/locationforecast/2.0/compact"
+MET_FETCH_CONCURRENCY = 2
+
+# An asyncio.Semaphore binds to the loop that first awaits it, so a module-level
+# instance breaks repeated `asyncio.run` calls (tests) and a server restart.
+# Keep one gate per running loop instead.
+_MET_GATES: "weakref.WeakKeyDictionary" = weakref.WeakKeyDictionary()
+
+
+def _met_gate() -> asyncio.Semaphore:
+    loop = asyncio.get_running_loop()
+    gate = _MET_GATES.get(loop)
+    if gate is None:
+        gate = asyncio.Semaphore(MET_FETCH_CONCURRENCY)
+        _MET_GATES[loop] = gate
+    return gate
 
 
 def _record_weather_attempt(name: str, *, ok: bool, http_status, error,
                             forecast_days: int = 0, retry_after=None,
-                            detail=None) -> None:
+                            detail=None, provider: str | None = None,
+                            stale: bool = False) -> None:
     prev = _WEATHER_ATTEMPTS.get(name) or {}
     _WEATHER_ATTEMPTS[name] = {
         "city": name,
@@ -117,12 +146,45 @@ def _record_weather_attempt(name: str, *, ok: bool, http_status, error,
         "forecast_days": forecast_days,
         "retry_after": retry_after,
         "detail": detail,
+        "provider": provider if provider is not None else "none",
+        "stale": bool(stale),
         "attempts": int(prev.get("attempts") or 0) + 1,
         "at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
     }
 
 
-async def fetch_weather(session, city):
+def _forecast_ok(result) -> bool:
+    """Same success test the weather grid uses: a forecast and no error."""
+    return (
+        isinstance(result, dict)
+        and "error" not in result
+        and "forecast" in result
+    )
+
+
+def _remember_weather(name: str, record: dict) -> None:
+    if record.get("forecast"):
+        _WEATHER_LAST_GOOD[str(name).strip().lower()] = {
+            "at": time.monotonic(),
+            "record": dict(record),
+        }
+
+
+def _stale_weather(name: str) -> dict | None:
+    """A real forecast from the last 24 hours, labelled stale, or None."""
+    entry = _WEATHER_LAST_GOOD.get(str(name).strip().lower())
+    if not entry:
+        return None
+    age = time.monotonic() - entry["at"]
+    if age > WEATHER_STALE_MAX_S:
+        return None
+    record = dict(entry["record"])
+    record["stale"] = True
+    record["stale_age_s"] = int(age)
+    return record
+
+
+async def _fetch_open_meteo(session, city):
     url = "https://api.open-meteo.com/v1/forecast"
     params = {
         "latitude": city["lat"], "longitude": city["lon"],
@@ -131,6 +193,11 @@ async def fetch_weather(session, city):
         ),
         "timezone": "Asia/Karachi", "forecast_days": 7,
     }
+    # Optional paid key: appending it lifts the shared-IP daily quota without a
+    # code change. Free tier is unaffected when the env var is unset.
+    api_key = (os.environ.get("OPEN_METEO_API_KEY") or "").strip()
+    if api_key:
+        params["apikey"] = api_key
     try:
         async with session.get(url, params=params, timeout=aiohttp.ClientTimeout(total=25)) as r:
             if r.status != 200:
@@ -144,16 +211,12 @@ async def fetch_weather(session, city):
                 except Exception:
                     detail = None
                 log.warning(
-                    "weather city=%s error=HTTP %s retry_after=%s detail=%s",
+                    "weather provider=open-meteo city=%s error=HTTP %s retry_after=%s detail=%s",
                     city["name"], r.status, retry_after, detail,
-                )
-                _record_weather_attempt(
-                    city["name"], ok=False, http_status=r.status,
-                    error=f"HTTP {r.status}", retry_after=retry_after,
-                    detail=detail,
                 )
                 return {
                     "city": city["name"], "error": f"HTTP {r.status}",
+                    "http_status": r.status,
                     "retry_after": retry_after, "detail": detail,
                 }
             data = await r.json()
@@ -166,18 +229,198 @@ async def fetch_weather(session, city):
                           "weathercode": daily.get("weathercode", [None]*len(times))[i],
                           "wind_max": daily.get("windspeed_10m_max", [None]*len(times))[i]}
                          for i in range(len(times))]
-            _record_weather_attempt(
-                city["name"], ok=True, http_status=200, error=None,
-                forecast_days=len(forecast),
-            )
             return {"city": city["name"], "forecast": forecast}
     except Exception as e:
         detail = str(e) or type(e).__name__
-        log.warning("weather city=%s error=%s", city["name"], detail)
-        _record_weather_attempt(
-            city["name"], ok=False, http_status=None, error=detail,
+        log.warning(
+            "weather provider=open-meteo city=%s error=%s", city["name"], detail,
         )
-        return {"city": city["name"], "error": detail}
+        return {"city": city["name"], "error": detail, "http_status": None}
+
+
+def _met_weathercode(symbol: str):
+    """Coarse MET symbol_code -> Open-Meteo weathercode. Drivers ignore it."""
+    s = str(symbol or "").lower()
+    if "thunder" in s:
+        return 95
+    if "snow" in s or "sleet" in s:
+        return 71
+    if "rain" in s or "drizzle" in s:
+        return 61
+    if "fog" in s:
+        return 45
+    if "cloudy" in s:
+        return 3
+    if "fair" in s or "clear" in s:
+        return 1
+    return None
+
+
+def forecast_from_met(payload: dict) -> list[dict]:
+    """Fold MET Norway's hourly timeseries into the daily shape we consume.
+
+    Simplification: MET serves hourly points, the pipeline consumes daily rows,
+    so we bucket by **UTC calendar day**. Open-Meteo buckets by the requested
+    local timezone (Asia/Karachi), so around midnight the two providers can
+    differ by a few hours. That is acceptable for a fallback — the wildfire
+    drivers read a weekly max/sum, not an individual hour. ``wind_speed`` is
+    m/s in MET; convert to km/h to match the Open-Meteo field the fire
+    thresholds are written against.
+    """
+    series = ((payload or {}).get("properties") or {}).get("timeseries") or []
+    days: dict[str, dict] = {}
+    for entry in series:
+        stamp = str(entry.get("time") or "")
+        if len(stamp) < 10:
+            continue
+        date = stamp[:10]
+        data = entry.get("data") or {}
+        instant = (data.get("instant") or {}).get("details") or {}
+        temp = instant.get("air_temperature")
+        wind = instant.get("wind_speed")
+        next_hour = data.get("next_1_hours") or {}
+        precip = (next_hour.get("details") or {}).get("precipitation_amount")
+        symbol = (next_hour.get("summary") or {}).get("symbol_code")
+        row = days.setdefault(
+            date, {"temps": [], "winds": [], "precip": [], "symbols": []}
+        )
+        if temp is not None:
+            row["temps"].append(float(temp))
+        if wind is not None:
+            row["winds"].append(float(wind))
+        if precip is not None:
+            row["precip"].append(float(precip))
+        if symbol:
+            row["symbols"].append(symbol)
+
+    forecast = []
+    for date in sorted(days):
+        row = days[date]
+        forecast.append({
+            "date": date,
+            "temp_max": max(row["temps"]) if row["temps"] else None,
+            "temp_min": min(row["temps"]) if row["temps"] else None,
+            "precipitation": (
+                round(sum(row["precip"]), 2) if row["precip"] else None
+            ),
+            "weathercode": (
+                _met_weathercode(row["symbols"][0]) if row["symbols"] else None
+            ),
+            "wind_max": (
+                round(max(row["winds"]) * 3.6, 1) if row["winds"] else None
+            ),
+        })
+    return forecast
+
+
+async def _fetch_met_norway(session, city):
+    params = {"lat": city["lat"], "lon": city["lon"]}
+    headers = {"User-Agent": MET_USER_AGENT}
+    try:
+        async with _met_gate():
+            async with session.get(
+                MET_FORECAST_URL, params=params, headers=headers,
+                timeout=aiohttp.ClientTimeout(total=20),
+            ) as r:
+                if r.status != 200:
+                    raw_retry = r.headers.get("Retry-After")
+                    try:
+                        retry_after = int(raw_retry) if raw_retry else None
+                    except (TypeError, ValueError):
+                        retry_after = None
+                    try:
+                        detail = (await r.text())[:200]
+                    except Exception:
+                        detail = None
+                    log.warning(
+                        "weather provider=met-norway city=%s error=HTTP %s retry_after=%s",
+                        city["name"], r.status, retry_after,
+                    )
+                    return {
+                        "city": city["name"], "error": f"HTTP {r.status}",
+                        "http_status": r.status, "retry_after": retry_after,
+                        "detail": detail,
+                    }
+                payload = await r.json()
+        forecast = forecast_from_met(payload)
+        if not forecast:
+            return {
+                "city": city["name"],
+                "error": "MET Norway returned no timeseries",
+                "http_status": 200,
+            }
+        return {"city": city["name"], "forecast": forecast}
+    except Exception as e:
+        detail = str(e) or type(e).__name__
+        log.warning(
+            "weather provider=met-norway city=%s error=%s", city["name"], detail,
+        )
+        return {"city": city["name"], "error": detail, "http_status": None}
+
+
+async def fetch_weather(session, city):
+    """Open-Meteo first, MET Norway second, last-good forecast third.
+
+    The primary is the richer daily API the verticals were calibrated on. MET
+    Norway (keyless, independent infrastructure) takes over when the primary
+    hard-fails for a city — a daily-quota 429 on a shared egress IP, a non-200,
+    or a network error. When both are down we serve a real forecast from the
+    last 24 hours labelled ``stale`` rather than blanking the card; with no
+    such forecast the city honestly reports an error.
+    """
+    primary = await _fetch_open_meteo(session, city)
+    if _forecast_ok(primary) and primary.get("forecast"):
+        primary["provider"] = "open-meteo"
+        _remember_weather(city["name"], primary)
+        _record_weather_attempt(
+            city["name"], ok=True, http_status=200, error=None,
+            forecast_days=len(primary["forecast"]), provider="open-meteo",
+        )
+        return primary
+
+    _record_weather_attempt(
+        city["name"], ok=False, http_status=primary.get("http_status"),
+        error=primary.get("error"), retry_after=primary.get("retry_after"),
+        detail=primary.get("detail"), provider="none",
+    )
+
+    fallback = await _fetch_met_norway(session, city)
+    if _forecast_ok(fallback) and fallback.get("forecast"):
+        fallback["provider"] = "met-norway"
+        _remember_weather(city["name"], fallback)
+        _record_weather_attempt(
+            city["name"], ok=True, http_status=200, error=None,
+            forecast_days=len(fallback["forecast"]), provider="met-norway",
+        )
+        return fallback
+
+    stale = _stale_weather(city["name"])
+    if stale:
+        log.warning(
+            "weather city=%s both providers failed; serving %.0fs-old forecast as stale",
+            city["name"], stale.get("stale_age_s") or 0,
+        )
+        _record_weather_attempt(
+            city["name"], ok=True, http_status=200, error=None,
+            forecast_days=len(stale.get("forecast") or []),
+            provider=stale.get("provider") or "none",
+            detail="stale forecast", stale=True,
+        )
+        return stale
+
+    error = "; ".join(
+        part for part in (primary.get("error"), fallback.get("error")) if part
+    ) or "weather unavailable"
+    retry_after = primary.get("retry_after") or fallback.get("retry_after")
+    _record_weather_attempt(
+        city["name"], ok=False, http_status=fallback.get("http_status"),
+        error=error, retry_after=retry_after, detail=fallback.get("detail"),
+        provider="none",
+    )
+    return {
+        "city": city["name"], "error": error, "provider": "none",
+        "retry_after": retry_after,
+    }
 
 PANIC_WORDS = {"outbreak", "epidemic", "panic", "crisis", "emergency", "surge", "spike", "death", "died", "fatal", "deadly"}
 FEAR_WORDS = {"fear", "worried", "concern", "alarm", "warning", "alert", "danger", "threat", "scared", "horrific"}
@@ -1281,11 +1524,13 @@ def list_diseases():
 
 @app.get("/debug/weather")
 def debug_weather():
-    """Diagnostic: the last Open-Meteo attempt per city, raw error included.
+    """Diagnostic: the last weather attempt per city, provider and error included.
 
-    Render's logs are unreachable from outside, so this endpoint exists to answer
-    *why* the live grid reports ``cities: 0``. It reads in-memory state only and
-    must never 500: any internal failure degrades to a 200 error object.
+    Each row names the provider that served the city (``open-meteo``,
+    ``met-norway`` or ``none``) and whether it was a labelled stale fallback.
+    Render's logs are unreachable from outside, so this endpoint exists to
+    answer *why* the live grid reports ``cities: 0``. It reads in-memory state
+    only and must never 500: any internal failure degrades to a 200 error object.
     """
     try:
         configured = _unique_cities(
