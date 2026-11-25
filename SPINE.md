@@ -1549,3 +1549,65 @@ it does not claim to have repaired a formal AA failure that existed.
 - The inline marker's `::before` dash is decorative; `textContent` concatenates the
   hazard and label without it (`dengueno series`), while the rendered line is
   visually separated (`dengue — no series`). No layout or a11y-tree regression.
+
+---
+
+## 2026-11-25 — Auditor-2b
+
+### Objective credibility re-audit of the FIXED state — judgment only, no product changes
+Full evidence, per-city contamination table and per-claim verdicts:
+`docs/AUDIT-2026-11-25-global-credibility.md`. Read SPINE, the 2026-11-22 audit,
+`config.yaml`, `app.py`, `outbreak_sentinel.py`, `publish.py`, `receipts.py` and the whole
+submission pack; ran the suite; issued six **read-only** live renders plus every read
+endpoint; ran one local control on `127.0.0.1:8007` (killed; 8001 never touched); verified
+one settlement tx with `eth_getTransactionReceipt`. **No paid request, no money spent.**
+
+**Verdict:** `Readiness: 56/100` (prior: 45/100).
+
+### What the audit confirms is now TRUE
+- **The false-HIGH disease gate holds everywhere.** Six live renders, 13 cited headlines,
+  **0 other-disease, 0 unrelated**. Exhaustive payload sweep for ebola / legionnaire /
+  covid / lassa / nipah / zika / h5n1 / polio / tuberculosis → 0 hits. The old London
+  ebola+legionnaires' contamination is gone. Gate is single-point
+  (`_city_topic_news` → `_distinct_city_news`), pinned by `tests/test_disease_evidence.py`.
+- **B3 closed for real:** live `/scoreboard` → `total_receipts: 2`; `/receipts` lists LA
+  wildfire HIGH; `/risk` returns per-card `receipts: [...]`.
+- **H6 closed:** `/telegraph/status` → `last_settlement_source: "ledger"`, tx
+  `0xac02bcbb…c4cf` verified on-chain (status `0x1`, block **59,597,289**, to USDC
+  `0x036C…dCF7e`) — matches the submission doc.
+- **B4 in code:** `_paid_intelligence(proof)` puts the purchased answer on the card as a
+  cited driver; empty answer → `status:"unavailable"`, no invented driver.
+- Submission now carries the live URL, **Track 01**, missions 06/11 and the correct
+  **35/25/10/5/5/20** rubric. `pytest` → **109 passed**.
+
+### Live defects this audit found (all judge-falsifiable)
+1. **Weather is dead on Render — `cities: 0` on 3/3 probes**, every wildfire card
+   `chart: []`. Local control on the same commit: `cities: 19`, 7-point charts, LA
+   HIGH/**65** with a dry-outlook driver. Live LA is HIGH/**55** with no weather driver,
+   so the deployed hero card is 10 points weaker than the docs describe. Open-Meteo
+   answers the audit host in 5.5 s with all four keys ⇒ Render-egress-specific. The
+   WARNING line exists (`app.py:110/126`) but Render's logs are unreachable here, so the
+   **cause is unproven**. A failed grid is not cached, so every render re-attempts.
+2. **Duplicate receipts for one claim.** `publish.py` hashes the driver text, which
+   carries a volatile report count: LA filed `rcpt-0b9a629097ac` ("8 reports") **and**
+   `rcpt-a7c3b0f99663` ("9 reports"). `/scoreboard` reports 2 calls for 1 event, which
+   falsifies `publish.py:23`'s idempotency docstring.
+3. **Driver count vs rendered links, on the hero card.** LA driver says "9 city-specific
+   wildfire reports", `evidence_line` and `sources` say 5 — `rule_based_vertical_risk`
+   scores the full set, `sources` truncates to 5.
+4. **Vancouver MODERATE 30 on non-incidents** (a film screening, a startup's marketing
+   claim) — hazard vocabulary without an incident term is enough.
+5. **Stale test count** in the pack: SUB:40 says 94, SHOTLIST:52 says 95, actual **109**.
+
+### Still open before Dec 1 (unchanged by any code)
+**BLOCKING:** no demo video (repo has zero media); live weather outage. **HIGH:** receipt
+dedupe, driver/link reconciliation, receipts do not survive a redeploy
+(`.dockerignore` + no volume), mission 06's "days-to-impact per site" has no code behind
+it. **NICE:** screenshots, organic-growth evidence (20 rubric points, still zero), starred
+bounties username, `wallet: —`.
+
+### Hygiene
+No product code touched. My one local render appended two receipt rows at `19:07:49`;
+**exactly those two were removed** and `history/receipts.jsonl` restored to its
+pre-session 5 rows (left unstaged — it was dirty before this session). `dashboard/index.html`
+was left unstaged (Soldier D-3's beat). No secrets printed.
