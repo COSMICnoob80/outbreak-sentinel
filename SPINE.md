@@ -1476,3 +1476,76 @@ reason.
   feed reads `0 / 0 items` (empty panel) and the instruments print `deterministic`
   as the engine value, which reads as debug output. Both are content/data-wiring
   questions outside this file.
+
+---
+
+## 2026-11-25 — Soldier D-3
+
+**Scope:** final console micro-pass after a vision judge re-scored the live console
+**7/10** post-D-2. Edited `dashboard/index.html` and this checkpoint only. Did not
+touch `app.py`, `outbreak_sentinel.py`, `tests/*`, `telegraph/*`, `config.yaml`,
+`publish.py`, `history/receipts.jsonl`, or the service worker. No layout
+restructure; no fetch-path, response-shape, or severity-ramp change.
+
+### Fixed
+
+**1. "– no series" no longer costs a row.** D-2 had already reduced the series-less
+foot to one line, but it still emitted a `.card-foot` child (~29 px including the
+flex gap) on 28 of 34 cards. Those cards now carry one muted inline marker on
+their *existing* hazard line — `dengue — no series` / `… — no rain forecast` —
+so the honest wording is kept and costs zero vertical space. Cards with a real
+chart series keep the sparkline foot unchanged. A settled chip on a series-less
+card rides the same hazard line.
+- `.card-foot.no-series` nodes: **28 → 0**
+- `.tag-series` inline markers: **0 → 28**
+- card height, series-less card: **176 → 147 px** (at 1280); series cards unchanged
+- page height, 34-card stub: **4790 → 4476 px at 1440×1000** (−314);
+  **4886 → 4572 px at 1280**; **13385 → 12585 px at 390**; **14050 → 13250 px at 320**
+- tag-row height unchanged (44 px) — the first attempt put the marker in the tag
+  row and it wrapped (44 → 73 px), cancelling the gain; measured, then moved to
+  the hazard line
+- 320 px still overflows 5 px (`scrollWidth 325`), **but before the change it was
+  also 325** — pre-existing, not introduced here; no new overflow at 390/1000/1440
+
+**2. Secondary ink lifted (tokens only, zero hex).** The four `--ink-*` steps were
+re-spaced upward. Measured on `--surface-1` with the design `check.mjs`:
+
+| token | before | after |
+|---|---|---|
+| `--ink` | 16.63:1* | 16.63:1 |
+| `--ink-mid` | 13.14:1 (0.890) | **14.78:1** (0.928) |
+| `--ink-dim` | 11.87:1 (0.858) | **13.48:1** (0.898) |
+| `--ink-faint` | 10.20:1 (0.812) | **12.18:1** (0.866) |
+
+\*before values for mid/dim/faint measured from the old ladder; faint also measures
+11.32:1 on `--surface-2` and dim 11.17:1 on `--surface-3` after the change.
+
+**Honest note on the judge's "below AA" claim:** it does **not** reproduce. The old
+`--ink-faint` already measured **10.20:1** and `--ink-dim` **11.87:1** on
+`--surface-1` — both far above WCAG AA 4.5:1. The real defect is perceptual: 11 px
+metadata at the faint end of the ladder reads as dim gray on a dark display. This
+beat lifts the secondary steps for legibility (all now clear AAA 7:1 with headroom);
+it does not claim to have repaired a formal AA failure that existed.
+
+### Verification (2026-11-25)
+- `env -u PYTHONPATH .venv/bin/python -m pytest -q` → **109 passed, 3 warnings in 4.36s**
+- extracted inline `<script>` (61,237 bytes) + `node --check` → **rc 0**
+- `grep -oE '#[0-9a-fA-F]{3,8}\b' dashboard/index.html | wc -l` → **0**
+- design `check.mjs` → **0 FAIL, 1 WARN · colors: 23 oklch, 0 hex**; the WARN (pill
+  radius on 8 selectors) is byte-identical on `HEAD`
+- no CDN / web-font refs → 0
+- `git diff` grep: no `fetch(`, `risk_cards`, `.chart`, `risk_level`, `confidence`,
+  or `--sev-*` changes — only the `settledTx` chip block moved, logic identical
+- headless 34-card stub: 34/34 cards render, 0 console errors, no new horizontal
+  overflow at 390/1000/1440; screenshot confirms `dengue — no rain forecast` inline
+
+### Not done / honest notes
+- Reaching "three viewport-heights" is not possible without a layout restructure,
+  which this work order forbids. The measured ceiling on the 34-card stub is ~4.5
+  viewports at 1440 (4476 px / 1000 px); the remaining height is card substance,
+  not chrome.
+- `history/receipts.jsonl` was already modified at session start and is left
+  unstaged; no receipt rows were written by this beat.
+- The inline marker's `::before` dash is decorative; `textContent` concatenates the
+  hazard and label without it (`dengueno series`), while the rendered line is
+  visually separated (`dengue — no series`). No layout or a11y-tree regression.
