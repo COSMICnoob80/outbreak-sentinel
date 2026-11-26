@@ -2153,7 +2153,7 @@ a Render free-tier container reset restores the image copy, so rows written sinc
 deploy can still be lost. True durability needs a mounted Render disk or an external store;
 `telegraph/settlements.py` was out of scope.
 
-### Tests (`tests/test_paid_path.py`, 6 new; suite 125 → 131)
+### Tests (`tests/test_paid_path.py`, 7 new; suite 125 → 132)
 1. `test_card_is_built_before_the_purchase` — call order `["build","buy"]`; purchaser raises
    and the card is still in the response with `settlement_error`.
 2. `test_no_card_returns_400_and_never_purchases` (`""`, `"   "`, `"zzzz-not-a-real-city"`)
@@ -2162,9 +2162,11 @@ deploy can still be lost. True durability needs a mounted Render disk or an exte
    request (no dedupe at ledger level).
 4. `test_adopts_city_and_disease_for_the_paid_path_without_touching_the_grid` — Kabul/polio
    card, only the polio headline as evidence, `CONFIG["cities"]` unchanged.
+5. `test_debug_weather_shows_an_adopted_city` — an adopted fetch appears with
+   `adopted: true` and does not inflate `configured_cities`.
 
 ### Verification
-- `env -u PYTHONPATH .venv/bin/python -m pytest -q` → **131 passed**.
+- `env -u PYTHONPATH .venv/bin/python -m pytest -q` → **132 passed**.
 - Local 8006 run with a **faked purchaser** (mocked proof, temp ledgers, `SENTINEL_NARRATOR=0`):
   `POST /telegraph/risk {"city":"Kabul","disease":"polio"}` → `city_adopted true`,
   `risk_card.city "Kabul"`, `disease "Polio"`, `LOW`, `score 0`, `evidence_count 0`,

@@ -254,3 +254,26 @@ def test_adopts_city_and_disease_for_the_paid_path_without_touching_the_grid(mon
     # The ad-hoc city never enters the standing grid.
     assert [c["name"] for c in app_module.CONFIG["cities"]] == grid_before
     assert "Kabul" not in grid_before
+
+
+# ── 5. The adopted fetch is visible in diagnostics ─────────────────────
+
+def test_debug_weather_shows_an_adopted_city(monkeypatch):
+    """An on-demand fetch must be observable, or a blank card is unexplainable."""
+    monkeypatch.setattr(app_module, "_WEATHER_ATTEMPTS", {})
+    app_module._record_weather_attempt(
+        "Kabul", ok=True, http_status=200, error=None,
+        forecast_days=7, provider="open-meteo",
+    )
+
+    body = TestClient(app_module.app).get("/debug/weather").json()
+
+    row = next(r for r in body["cities"] if r["city"] == "Kabul")
+    assert row["adopted"] is True
+    assert row["ok"] is True
+    assert body["adopted_cities"] == 1
+    # The configured grid rows are untouched by the adopted one.
+    assert body["configured_cities"] == len(app_module._unique_cities(
+        list(app_module.CONFIG["cities"]) + list(app_module.CONFIG["wildfire_cities"])
+    ))
+
