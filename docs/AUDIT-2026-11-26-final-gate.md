@@ -15,12 +15,14 @@ judge would hit it. Read-only GETs only; the only chain calls were
 
 ## Verdict
 
-> **Final gate: NO-GO — fix R1 (corrupt tx hash + wrong block in the form draft) first.**
-> One-line copy edit, ~2 minutes. Once R1 is fixed, this ships as-is.
+> **Final gate: NO-GO — fix R1 and R11 (the two wrong on-chain numbers) first.**
+> Two copy edits, ~3 minutes total. Once they are fixed, this ships as-is.
 
-The product is real and live. The blocker is not the software — it is **one corrupted
-copy-paste in the submission draft**, sitting inside the single block that literally
-invites a judge to falsify it. Nothing else found is submission-stopping.
+The product is real and live. The blockers are not the software — they are **two hand-copied
+chain numbers** sitting in the exact blocks that invite a judge to check them: a corrupted tx
+hash in the form draft (§1.2), and a transposed block number in the submission doc (§1.8).
+Both are falsifiable in one click and both are one paste from the chain. Nothing else found is
+submission-stopping.
 
 ---
 
@@ -84,8 +86,9 @@ falsify in 2 minutes" section promises will hold up.
 
 Draft line 43 says `status 0x1, block 61335917-era settle` on the `0xac02bcbb` tx. On-chain,
 `0xac02bcbb…c4cf` is **block 59,597,289**. Block **61,335,917** is a *different* tx,
-`0x979515ea…7067`. The two txs were conflated. `demo/HACKATHON-SUBMISSION.md` (line 50) and
-the video both have this right (59,597,289); only the form draft is wrong.
+`0x979515ea…7067`. The two txs were conflated. `demo/HACKATHON-SUBMISSION.md:50` and the
+video both have *this* tx right (59,597,289) — but the same doc has a **separate** wrong
+block on the third tx; see §1.8 (R11). The form draft is where the conflation lands.
 
 **Fix (R1):** replace both occurrences of the hash with
 `0xac02bcbbe78e85760f3ae45400d457f750c9f0fd61c0fc9d06189fe84aa9c4cf` and replace
@@ -140,6 +143,31 @@ not false enough to block. Fold into R2/R3 copy edit.)
 - "tests/test_disease_evidence.py, 193 lines" → **193**. True.
 - "3:52, 1920×1080" → `ffprobe` 232 s, 1920×1080. True.
 - "receipts dedupe by stable card identity" → `publish._claim_identity`. True.
+
+### 1.8 Third settlement tx — wrong block in the judge-facing doc (R11)
+
+`demo/HACKATHON-SUBMISSION.md:51` lists `0xf2276f58…97d4` at **block 48,374,650**. On-chain
+that tx is **block 48,407,418**:
+
+```
+eth_getTransactionReceipt(0xf2276f58…97d4)
+  → status 0x1 · block 48407418 · Transfer 10000 from 0x7b3654a6…f249
+```
+
+It is a **digit transposition** (`418` → `650`) that entered in commit `af45d65` and spread to
+`state/hackathon-state.md:29` and `docs/AUDIT-2026-11-22.md:49`. The verified value was already
+in the repo: `SPINE.md:402` records the same tx at block `0x2e2a37a`, which is **48407418** in
+decimal, and `SPINE.md:1048` says "re-checked on Base Sepolia at block 48407418". So the docs
+contradicted the SPINE, which is the authority.
+
+This is the same *class* of defect as R1 — a hand-copied chain number that a judge can check in
+one click — but in a different file, so it needs its own fix. All three tx hashes themselves are
+correct and all three resolve `status 0x1` with a genuine 10,000-unit (0.01 USDC) transfer from
+`0x7b3654a6…f249`; only this block label is wrong.
+
+**Fix (R11):** in `demo/HACKATHON-SUBMISSION.md:51` change `48,374,650` → **48,407,418**
+(and, for consistency, the same line in `state/hackathon-state.md:29`). Leave
+`docs/AUDIT-2026-11-22.md` as a dated record.
 
 ---
 
@@ -265,26 +293,29 @@ fresh boot). Not submission-blocking.
 
 ## Ranked fix list
 
-**Must fix before submit (NO-GO until R1):**
+**Must fix before submit (NO-GO until these):**
 1. **R1 — form draft tx hash + block (blocking).** Replace `0xac02…c9f10fd61c0f…c4f` →
    `0xac02…c9f0fd61c0f…c4cf` (both occurrences) and `block 61335917-era` → `block 59597289`.
    Copy from live `/telegraph/status` so it cannot drift again. (~2 min)
+2. **R11 — submission doc's third tx block (same class).** `demo/HACKATHON-SUBMISSION.md:51`:
+   `0xf2276f58…97d4` is block **48,407,418**, not `48,374,650`. Same line in
+   `state/hackathon-state.md:29`. (~30 s)
 
 **Should fix in the same copy edit (cheap, closes overclaims a judge can falsify):**
-2. **R2** — "Every finalized card" → "Every HIGH/CRITICAL card that finalizes".
-3. **R3** — drop "every card carries ≤7 days of observable lead time"; use the submission
+3. **R2** — "Every finalized card" → "Every HIGH/CRITICAL card that finalizes".
+4. **R3** — drop "every card carries ≤7 days of observable lead time"; use the submission
    doc's honest 7-day *evidence window* wording.
-4. **R4** — MET Norway: "ships a fallback (shown as a labelled replay)" not "kept serving".
-5. **R5** — add the ~50 s wake / ~150 s first-render line next to the Console URL in the
+5. **R4** — MET Norway: "ships a fallback (shown as a labelled replay)" not "kept serving".
+6. **R5** — add the ~50 s wake / ~150 s first-render line next to the Console URL in the
    form draft.
 
 **Nice-to-have (a beat each, not blocking):**
-6. **R6** — note on the video page that the receipt count is a build-time snapshot (it was
+7. **R6** — note on the video page that the receipt count is a build-time snapshot (it was
    "2 filed"; live may show fewer after a redeploy).
-7. **R7** — add an MIT `LICENSE` file (README already claims MIT).
-8. **R8** — README: link the demo video/screenshots; fix the `localhost:8000` server line.
-9. **R9** — persist `history/` + `state/` across redeploys, or disclose runtime rebuild.
-10. **R10** — console "weather N" metric reads a key `/risk` does not send.
+8. **R7** — add an MIT `LICENSE` file (README already claims MIT).
+9. **R8** — README: link the demo video/screenshots; fix the `localhost:8000` server line.
+10. **R9** — persist `history/` + `state/` across redeploys, or disclose runtime rebuild.
+11. **R10** — console "weather N" metric reads a key `/risk` does not send.
 
 ---
 
@@ -311,7 +342,9 @@ The gap between this and GO is a **copy-paste**, not the build.
   stills. Nothing needs building for this submission.
 - **Sent:** nothing yet — the form has not been submitted and the bounty repo is not yet
   starred from `COSMICnoob80`. Both are the operator's, not the auditor's, to do.
-- **Blocked:** the submission itself, on **R1** — the form draft's tx hash and block number.
-  Both are wrong in `demo/SUBMISSION-FORM-DRAFT.md`; the correct values are one paste away
-  from live `/telegraph/status`. R2–R5 are the same copy edit. Nothing else blocks GO.
+- **Blocked:** the submission itself, on **R1 + R11** — two wrong on-chain numbers. The form
+  draft's tx hash does not exist and its block belongs to another tx (`demo/SUBMISSION-FORM-DRAFT.md:42-44`);
+  the submission doc's third-tx block is transposed (`demo/HACKATHON-SUBMISSION.md:51`). Every
+  correct value is one paste from live `/telegraph/status` or the chain. R2–R5 are the same
+  copy edit. Nothing else blocks GO.
 

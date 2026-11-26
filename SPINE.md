@@ -1948,8 +1948,8 @@ checkpoint. No product code, no spend, no `git add -A`, no secrets printed. Full
 the audit file; this is the state that matters cold.
 
 ### Verdict
-**NO-GO — fix R1 first.** The product is live and real; the blocker is one corrupted
-copy-paste in `demo/SUBMISSION-FORM-DRAFT.md`. Fix R1 and it ships as-is.
+**NO-GO — fix R1 + R11 first.** The product is live and real; the blockers are two hand-copied
+on-chain numbers in the judge-facing docs. Fix both and it ships as-is.
 
 ### R1 (blocking) — the form draft's tx hash does not exist on-chain
 - Draft line 42 (and the link on 44) carry
@@ -1964,6 +1964,17 @@ copy-paste in `demo/SUBMISSION-FORM-DRAFT.md`. Fix R1 and it ships as-is.
   correctly — only the form draft is wrong.
 - **Fix:** paste `0xac02bcbbe78e85760f3ae45400d457f750c9f0fd61c0fc9d06189fe84aa9c4cf` +
   `block 59597289` from live `/telegraph/status`.
+
+### R11 (blocking) — the third tx's block is transposed in the submission doc
+- `demo/HACKATHON-SUBMISSION.md:51` lists `0xf2276f58…97d4` at **block 48,374,650**. On-chain
+  it is **block 48,407,418** (`status 0x1`, `Transfer 10000` from `0x7b3654a6…f249`).
+- A digit transposition (`418`→`650`) introduced in `af45d65`; also in
+  `state/hackathon-state.md:29` and the dated `docs/AUDIT-2026-11-22.md:49`.
+- The repo already held the truth: this same tx is `0x2e2a37a` (**48407418**) at
+  `SPINE.md:402`, and `SPINE.md:1048` says "re-checked … at block 48407418". The docs
+  contradicted the SPINE.
+- **Fix:** `48,374,650` → `48,407,418` in those two live lines (leave the 11-22 audit as a
+  dated record).
 
 ### Other overclaims found in the form draft (copy edit, same pass)
 - R2 "Every finalized card gets a receipt" — false; `publish.py:57` files only
