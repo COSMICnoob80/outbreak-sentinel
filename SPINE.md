@@ -1874,3 +1874,67 @@ stale test count 119 → **125** (W-6 added 6) in the reproducibility row.
 - Still open: receipts surviving a redeploy (`.dockerignore` + no volume), mission 06
   days-to-impact, Vancouver incident-term tightening, organic-growth evidence (20 rubric
   points — not code).
+
+---
+
+## 2026-11-26 — Soldier V-2
+
+**Scope:** parent vision-judged V-1's video **9/10** and accepted exactly one fix. Owned
+files only: `demo/render_video.py`, `demo/outbreak-sentinel-demo.mp4` (rebuilt),
+`demo/screenshots/` (new), `demo/VIDEO-CAPTIONS.md`, `SPINE.md`. Did **not** touch
+`app.py`, `tests/`, `telegraph/`, `receipts.py`, `history/receipts.jsonl`, and did **not**
+re-capture `state/video-capture/` — that snapshot is the judged truth and every frame here
+still reads from it.
+
+### The one fix
+Scene 5's last 4.5 s is now an **evidence detail hold**: the dense panels (full 66-char tx
+hash block + both receipt rows with their `sha256` content hashes) are laid out at a literal
+**1.5×** type scale and shown for **4.0 s**, prefixed by a 0.5 s eased push from the
+whole-panel fit to 1:1.
+
+How the "never crop / never leave the frame" rule is enforced rather than asserted:
+- `money_evidence_plate()` lays the block out inside `ZOOM_BOX = (120, 176, 1800, 940)` and
+  **raises `SystemExit`** if the block's bottom or widest line does not fit. A longer hash in
+  a future snapshot fails the build instead of clipping on screen.
+- Font sizes are pinned at `size × 1.5`; only **whitespace** absorbs a shortfall, so the
+  1.5× label is literal. (The first attempt overflowed by 53 px and the guard refused to
+  render — it caught itself.)
+- `money_detail_frame()` only ever scales that fitting plate **down** to `1/1.5` and back to
+  1:1, so no column, edge or glyph can leave the frame at any instant.
+- Pushes start from the fitted whole panel, not from the wide layout: an `Image.blend` of the
+  two layouts double-exposed two sets of text (caught on a rendered contact sheet and
+  replaced with a cut-then-push).
+
+Also fixed while exporting `01-title.png` for the form — two **pre-existing** layout
+overflows the judge would have seen in the still: the LIVE pill was a fixed 660 px and its
+URL ran 17 px past the border, and the `/health` panel was a fixed 300 px while four
+label/value rows need 370 px, so `grid timestamp` sat outside the box. Both panels now size
+from their content.
+
+### Deliverable
+`demo/outbreak-sentinel-demo.mp4` — 1920×1080, 30 fps, H.264, **232 s**, 4,926,657 B.
+Six stills, all 1920×1080, from `render_video.py --stills` (same render path as the video,
+not ffmpeg seeking):
+`demo/screenshots/01-title.png`, `02-console-grid.png`, `03-la-card.png`,
+`04-evidence-gate.png`, `05-weather-resilience.png`, `06-money-story.png`.
+
+### Gates (all run, verbatim)
+- `ffprobe` **before** (committed V-1 blob): `duration=232.000000`, `size=4528142`.
+- `ffprobe` **after**: `duration=232.000000`, `nb_frames=6960`, `1920x1080`, `h264`,
+  `size=4926657`. In 120–280 s.
+- **Determinism:** two consecutive rebuilds → identical `md5sum`
+  `42b8a387cd539c89a84eeebaa997fd26` and identical duration. Same snapshot in, same bytes out.
+- `env -u PYTHONPATH .venv/bin/python -m pytest -q` → **125 passed, 3 warnings in 8.42s**.
+- Verify-before-claim: scene-5 frames extracted **from the encoded mp4** at 207.55 s (fitted
+  whole panel), 208.0 s (ramp end) and 211.5 s (hold) all show complete, uncropped text. The
+  parent, not this checkpoint, judges the vision score.
+
+### Honest notes / for the next owner
+- The push **cuts** to the detail view, then moves. A cross-fade between the wide layout and
+  the plate was tried and rejected: it super-imposes two different layouts. If a smoother
+  entry is wanted later, animate the plate's own scale from a smaller fit — do not blend.
+- The hold's timing is derived (`zoom_start = 1 - 4.5/56`), so changing scene 5's duration
+  moves the hold with it; `VIDEO-CAPTIONS.md` quotes 207.5–212.0 s and would need the same
+  edit.
+- Screenshots are rendered, not grabbed from the mp4, so they carry no chroma subsampling —
+  they are the sharper artefact for the form.

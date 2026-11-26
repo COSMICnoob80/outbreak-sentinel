@@ -1,4 +1,4 @@
-# VIDEO-CAPTIONS — Outbreak Sentinel demo (Soldier V-1)
+# VIDEO-CAPTIONS — Outbreak Sentinel demo (Soldier V-2)
 
 **Deliverable:** `demo/outbreak-sentinel-demo.mp4` — 1920×1080, 30 fps, H.264, **232 s** (3:52),
 captioned, no audio track. Built from real captured API responses, not screen capture.
@@ -8,7 +8,16 @@ captioned, no audio track. Built from real captured API responses, not screen ca
 ./demo/capture_video_data.sh                                        # live GETs → state/video-capture/*.json
 env -u PYTHONPATH .venv/bin/python demo/capture_video_data.py       # → snapshot.json (+ forced MET fallback, on-chain read)
 env -u PYTHONPATH .venv/bin/python demo/render_video.py             # → demo/outbreak-sentinel-demo.mp4
+env -u PYTHONPATH .venv/bin/python demo/render_video.py --stills demo/screenshots   # → 6 form PNGs
 ```
+
+V-2 rebuilt the video from the **same** `state/video-capture/snapshot.json` as V-1 (no
+re-capture) and changed exactly one thing on screen: scene 5's ending. The last 4.5 s of the
+money scene now hold a **1.5× detail view** of the dense evidence panels — the full tx hash
+block and both receipt rows — so a judge can read them. The block is laid out at 1.5× inside
+a box that is checked to contain it before drawing, then the camera eases from the whole-panel
+fit up to 1:1 over 0.5 s and holds 4.0 s. It never crops a column or leaves the frame.
+`demo/screenshots/` holds six 1920×1080 PNGs rendered through the same code path as the video.
 
 Every pixel of content is drawn from `state/video-capture/snapshot.json`. No finding, number
 or headline in the video is hand-written; the renderer's strings interpolate captured values
@@ -125,11 +134,24 @@ From `/receipts`: `2 filed from HIGH/CRITICAL cards`, then each row —
 `rcpt-336283ecc0c4 · Los Angeles · HIGH 65 · OPEN · 5 city-specific wildfire reports in 7 days`
 and `rcpt-c8cd0f19221c · Cape Town · HIGH 55 · OPEN · …`, each with its `content_hash`.
 
+At **207.5 s** (92% through the scene) the camera cuts to the evidence detail view and pushes
+in, then holds:
+
+- **207.5–208.0 s** — the whole panel is fitted: the settlement panel, both receipt rows and
+  both content hashes are drawn at 1.5× type but shown scaled to 1/1.5 so the entire block is
+  visible and centered. Nothing is outside the frame.
+- **208.0–212.0 s** — hold at 1:1, i.e. the literal 1.5× layout, for 4.0 s, ending at the scene
+  cut. The tx hash (`0xac02bb…c4cf`) and both receipt rows are fully legible.
+- The block is laid out inside `ZOOM_BOX = (120, 176, 1800, 940)`; the renderer raises rather
+  than drawing if the text does not fit, so a longer hash in a future snapshot fails the build
+  instead of clipping. Whitespace, not type size, absorbs any shortfall.
+
 Captions:
 1. `The money is first-class data, not a claim.`
 2. `Mode live on Base Sepolia (testnet): a real transaction, mocked False.`
 3. `Read back from the chain: status 0x1, block 59597289, to the USDC contract.`
 4. `Every paid assessment is notarized, and every HIGH card that finalizes files a receipt.`
+5. `Read it yourself — full tx hash and both receipts, fitted to the frame, never cropped.`
 
 > No paid request was fired for this video. The settlement shown is the already-verified
 > ledger seed that `/telegraph/status` returns on a fresh boot, and its block number comes
