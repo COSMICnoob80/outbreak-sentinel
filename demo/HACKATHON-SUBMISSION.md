@@ -22,7 +22,7 @@ Run it locally if you prefer:
 env -u PYTHONPATH .venv/bin/python -m uvicorn app:app --host 127.0.0.1 --port 8001
 ```
 
-Walkthrough: `demo/SCRIPT-60s.md` · capture plan: `demo/SHOTLIST.md`
+**Video (3:52):** `demo/outbreak-sentinel-demo.mp4` — built from the live API's real responses at build time; captions and per-scene captured fields in `demo/VIDEO-CAPTIONS.md`. Rebuild: `./demo/capture_video_data.sh` → `capture_video_data.py` → `render_video.py`.
 
 ## Missions
 
@@ -37,7 +37,7 @@ Walkthrough: `demo/SCRIPT-60s.md` · capture plan: `demo/SHOTLIST.md`
 | 25% | Commercial viability | `pitch/COMMERCIAL-SUMMARY.md` — buyer, what it replaces, unit economics (~$0.01 of Telegraph miner cost per paid assessment; free RSS + Open-Meteo signals), >90% gross-margin target |
 | 10% | Adoption | self-serve surface (`/telegraph/assess`), public ledger (`/telegraph/ledger`), machine-readable API (`/risk`, `/telegraph/risk`) |
 | 5% | Integration | Telegraph REST seam (miner discovery, ask, 402), our own FastAPI service, Render deploy, PWA console |
-| 5% | Reproducibility | `env -u PYTHONPATH .venv/bin/python -m pytest -q` → 119 passed; `render.yaml` blueprint in-repo; run command above |
+| 5% | Reproducibility | `env -u PYTHONPATH .venv/bin/python -m pytest -q` → 125 passed; `render.yaml` blueprint in-repo; run command above; `demo/outbreak-sentinel-demo.mp4` rebuilds from captured live responses |
 | 20% | Organic growth | dated public updates + an invitation to reproduce; every claim in this doc opens a URL a reviewer can check |
 
 ### Settlement evidence

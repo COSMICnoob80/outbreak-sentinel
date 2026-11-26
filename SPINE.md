@@ -1801,3 +1801,76 @@ which provider served each city.
 - Still open and outside this lane: demo video, receipts surviving a redeploy,
   mission 06 days-to-impact, Vancouver incident-term tightening, organic-growth
   evidence.
+
+---
+
+## 2026-11-25 — Soldier V-1
+
+**Scope:** the last BLOCKING submission gap — the 2–5 minute demo video — built from
+the app's REAL live output, not screen capture. Owned files only: `demo/`,
+`state/video-capture/` (new), `demo/HACKATHON-SUBMISSION.md`, `SPINE.md`. Did **not**
+touch `app.py`, `outbreak_sentinel.py`, `publish.py`, `telegraph/*`, `receipts.py`,
+`dashboard/`, `Dockerfile`, `.env`, `history/receipts.jsonl`.
+
+### Deliverable
+`demo/outbreak-sentinel-demo.mp4` — **1920×1080, 30 fps, H.264, 232 s (3:52), 4.5 MB**,
+captioned, no audio. `ffprobe`: `duration=232.000000`, `nb_frames=6960`,
+`codec_name=h264`. Six captioned scenes: cold open → live console (LA wildfire HIGH 65)
+→ evidence gate (London dengue LOW 20) → graceful degradation → money story → close
+(Track 01, missions 06 + 11). Captions + per-scene provenance: `demo/VIDEO-CAPTIONS.md`.
+
+### Method (as the work order specified)
+- `demo/capture_video_data.sh` — read-only GETs at build time to the live deployment:
+  `/health`, `/risk`, `/telegraph/status`, `/telegraph/stats`, `/debug/weather`,
+  `/receipts`, `/scoreboard`, `/cities`. **No POST, no payment, no money spent.**
+- `demo/capture_video_data.py` — compiles those into `state/video-capture/snapshot.json`,
+  adds (a) a forced-fallback weather run and (b) a read-only `eth_getTransactionReceipt`.
+- `demo/render_video.py` — Pillow frames at 1920×1080/30 fps piped raw rgb24 into
+  `ffmpeg -f rawvideo … -c:v libx264 -crf 20 -pix_fmt yuv420p -movflags +faststart`,
+  no PNGs on disk. Every drawn string/number/hash is a lookup into `snapshot.json`;
+  a `measure()` pass counts each scene's real draw calls so reveal pacing matches.
+
+### What the captured data actually says (and where it diverged from the plan)
+1. **Weather had recovered live** — Open-Meteo's daily quota reset, so `/debug/weather`
+   returned `configured 19 · attempted 19 · ok 19 · failed 0`, `providers: open-meteo`,
+   `cache 19`. The work order's "19/19 served by MET Norway today" premise was **false
+   on capture day**, so it was not claimed. Instead the resilience scene shows the live
+   grid **and** a labelled replay: the shipped `app.fetch_weather` executed with
+   `_fetch_open_meteo` returning the exact 429 body Render returned on 2026-11-25 →
+   `ok 19/19 via met-norway`, `forecast days per city [10]` (real MET data). The panel
+   says `replayed … verbatim 2026-11-25 reply`; captions distinguish "today" from
+   "when the primary hard-fails".
+2. **No paid card exists in the free grid** — today's `/risk` carries no `paid_intelligence`
+   driver, so the money beat uses the already-verified settlement: `/telegraph/status` →
+   tx `0xac02bcbb…c4cf`, `mode live`, `rail x402 (live)`, `mocked false`, chain 84532,
+   plus `eth_getTransactionReceipt` → `status 0x1`, block **59,597,289**, to USDC
+   `0x036c…dcf7e`. Exactly the work-order fallback; nothing was spent.
+3. **The integrity fixes show on the hero card** — LA wildfire is HIGH **65** now (was 55
+   during the audit) with the wind driver restored, and `evidence_count 5 == sources 5`
+   (the old "9 vs 5" is gone). London cites only its Yahoo vector story; Karachi is
+   `LOW 0 with 0 sources`. `/receipts` = 2 (LA 65, Cape Town 55), `/telegraph/stats`
+   integrity 100%.
+
+### Gates
+- `ffprobe` → **232 s**, stream present (1920×1080 h264 30 fps, 6960 frames). In 120–280.
+- 6-frame montage extracted **from the encoded mp4** at full reveal → parent vision-judge
+  (pending; not self-approved).
+- `env -u PYTHONPATH .venv/bin/python -m pytest -q` → **125 passed, 3 warnings in 7.24s**
+  (unchanged; video build touches no app code).
+- Pillow installed into the project venv (`pillow 13.0.0`); every render run as
+  `env -u PYTHONPATH .venv/bin/python …`. No secrets printed. Nothing `git add -A`'d.
+
+### Doc corrections
+`demo/HACKATHON-SUBMISSION.md`: added the video to the Live-demo section and fixed the
+stale test count 119 → **125** (W-6 added 6) in the reproducibility row.
+
+### Honest notes / for the next owner
+- The resilience beat is a **labelled replay**, not live MET serving. If Open-Meteo's
+  quota is still dead on the next capture, `/debug/weather` will show `met-norway` live
+  and the replay panel becomes literal — the renderer needs no change.
+- `state/video-capture/*.json` + `snapshot.json` are build inputs; re-run the three
+  commands in `demo/VIDEO-CAPTIONS.md` to refresh against whatever the deployment says
+  that day. The video is a snapshot of 2026-11-26 08:04 UTC.
+- Still open: receipts surviving a redeploy (`.dockerignore` + no volume), mission 06
+  days-to-impact, Vancouver incident-term tightening, organic-growth evidence (20 rubric
+  points — not code).

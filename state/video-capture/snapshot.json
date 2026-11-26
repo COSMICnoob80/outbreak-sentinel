@@ -1,0 +1,929 @@
+{
+ "captured_at": "2026-11-26T08:08:50+00:00",
+ "live_base": "https://outbreak-sentinel.onrender.com",
+ "health": {
+  "status": "ok",
+  "service": "outbreak-sentinel",
+  "version": "1.0.0",
+  "groq_key_present": true
+ },
+ "telegraph_status": {
+  "live": true,
+  "is_live": true,
+  "mode": "live",
+  "settlement_mode": "live",
+  "network_label": "Base Sepolia (testnet)",
+  "chain_id": 84532,
+  "chain_caip": "eip155:84532",
+  "usdc_address": "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
+  "rpc_url": "https://sepolia.base.org",
+  "explorer_tx_url": "https://sepolia.basescan.org/tx/{tx_hash}",
+  "price_source": "miner floor price x network demand multiplier (live, from 402 challenge)",
+  "miner_selection": "auto",
+  "testnet": true,
+  "testnet_boundary": "TESTNET ONLY — Base Sepolia (chain id 84532). Settlement is LIVE via x402: a real transaction is submitted on Sepolia. No mainnet value moves.",
+  "last_settlement": {
+   "seeded_from": "state/settlements.jsonl",
+   "tx_hash": "0xac02bcbbe78e85760f3ae45400d457f750c9f0fd61c0fc9d06189fe84aa9c4cf",
+   "amount_usd": 0.01,
+   "amount_uusdc": "10000",
+   "miner": "unknown",
+   "miner_name": "unknown-miner",
+   "mode": "live",
+   "network_label": "Base Sepolia (testnet)",
+   "chain_id": 84532,
+   "time_pkt": "2026-11-16 20:02 PKT",
+   "query": "Assess outbreak risk for Karachi",
+   "city": "Karachi",
+   "disease": "dengue",
+   "explorer_tx_url": "https://sepolia.basescan.org/tx/0xac02bcbbe78e85760f3ae45400d457f750c9f0fd61c0fc9d06189fe84aa9c4cf",
+   "settlement": {
+    "miner": "unknown",
+    "miner_name": "unknown-miner",
+    "amount_usd": 0.01,
+    "amount_uusdc": "10000",
+    "tx_hash": "0xac02bcbbe78e85760f3ae45400d457f750c9f0fd61c0fc9d06189fe84aa9c4cf",
+    "network_label": "Base Sepolia (testnet)",
+    "chain_id": 84532,
+    "rail": "x402 (live)",
+    "mocked": false
+   }
+  },
+  "last_settlement_proof": {
+   "seeded_from": "state/settlements.jsonl",
+   "tx_hash": "0xac02bcbbe78e85760f3ae45400d457f750c9f0fd61c0fc9d06189fe84aa9c4cf",
+   "amount_usd": 0.01,
+   "amount_uusdc": "10000",
+   "miner": "unknown",
+   "miner_name": "unknown-miner",
+   "mode": "live",
+   "network_label": "Base Sepolia (testnet)",
+   "chain_id": 84532,
+   "time_pkt": "2026-11-16 20:02 PKT",
+   "query": "Assess outbreak risk for Karachi",
+   "city": "Karachi",
+   "disease": "dengue",
+   "explorer_tx_url": "https://sepolia.basescan.org/tx/0xac02bcbbe78e85760f3ae45400d457f750c9f0fd61c0fc9d06189fe84aa9c4cf",
+   "settlement": {
+    "miner": "unknown",
+    "miner_name": "unknown-miner",
+    "amount_usd": 0.01,
+    "amount_uusdc": "10000",
+    "tx_hash": "0xac02bcbbe78e85760f3ae45400d457f750c9f0fd61c0fc9d06189fe84aa9c4cf",
+    "network_label": "Base Sepolia (testnet)",
+    "chain_id": 84532,
+    "rail": "x402 (live)",
+    "mocked": false
+   }
+  },
+  "last_settlement_source": "ledger"
+ },
+ "telegraph_stats": {
+  "generated_at": "2026-11-26 12:55 PKT",
+  "assessments": 2,
+  "settled": 1,
+  "total_usdc": 0.01,
+  "integrity_pct": 100.0,
+  "verdicts": {
+   "LOW": 0,
+   "MODERATE": 0,
+   "HIGH": 2,
+   "CRITICAL": 0
+  },
+  "last_settlement_pkt": "2026-11-16 20:02 PKT",
+  "wallet_usdc": null,
+  "wallet_error": "no live payer address on record",
+  "settlements": [
+   {
+    "amount_usd": 0.01,
+    "amount_uusdc": "10000",
+    "amount_uusdc_requested": "10000",
+    "city": "Karachi",
+    "confidence": 0.95,
+    "disease": "dengue",
+    "drivers": [
+     "News uptick: 35 articles in 24h",
+     "High panic sentiment: 0.65"
+    ],
+    "engine": "rule-based",
+    "live": true,
+    "miner": "unknown",
+    "miner_name": "unknown-miner",
+    "mocked": false,
+    "mode": "live",
+    "query": "Assess outbreak risk for Karachi",
+    "risk_level": "HIGH",
+    "settlement_error": null,
+    "sources_count": 3,
+    "spend_tier": "essentials",
+    "tier": "essentials",
+    "tier_available": true,
+    "time_pkt": "2026-11-16 20:02 PKT",
+    "ts": 1794841347,
+    "tx_hash": "0xac02bcbbe78e85760f3ae45400d457f750c9f0fd61c0fc9d06189fe84aa9c4cf",
+    "verdict": "Karachi shows HIGH risk for dengue: News uptick: 35 articles in 24h; High panic sentiment: 0.65.",
+    "vertical": null
+   },
+   {
+    "amount_usd": 0.01,
+    "amount_uusdc": null,
+    "amount_uusdc_requested": "10000",
+    "city": "Karachi",
+    "confidence": 0.95,
+    "disease": "dengue",
+    "drivers": [
+     "News uptick: 38 articles in 24h",
+     "High panic sentiment: 1.00"
+    ],
+    "engine": "rule-based",
+    "live": false,
+    "miner": "unknown",
+    "miner_name": "unknown-miner",
+    "mocked": false,
+    "mode": "live",
+    "query": "Is dengue exploding in Karachi right now?",
+    "risk_level": "HIGH",
+    "settlement_error": "No payment requirements match registered schemes",
+    "sources_count": 5,
+    "spend_tier": "essentials",
+    "time_pkt": "2026-11-01 07:39 PKT",
+    "ts": 1793500749,
+    "tx_hash": null,
+    "verdict": "Karachi shows HIGH risk for dengue: News uptick: 38 articles in 24h; High panic sentiment: 1.00.",
+    "vertical": null
+   }
+  ]
+ },
+ "debug_weather": {
+  "generated_at": "2026-11-26T07:51:49+00:00",
+  "configured_cities": 19,
+  "attempted_cities": 19,
+  "ok": 19,
+  "failed": 0,
+  "cache": {
+   "age_s": 108,
+   "cities": 19,
+   "cities_ok": 19
+  },
+  "cities": [
+   {
+    "city": "Karachi",
+    "ok": true,
+    "http_status": 200,
+    "error": null,
+    "forecast_days": 7,
+    "retry_after": null,
+    "detail": null,
+    "provider": "open-meteo",
+    "stale": false,
+    "attempts": 1,
+    "at": "2026-11-26T07:50:00+00:00"
+   },
+   {
+    "city": "Lahore",
+    "ok": true,
+    "http_status": 200,
+    "error": null,
+    "forecast_days": 7,
+    "retry_after": null,
+    "detail": null,
+    "provider": "open-meteo",
+    "stale": false,
+    "attempts": 1,
+    "at": "2026-11-26T07:50:00+00:00"
+   },
+   {
+    "city": "Islamabad",
+    "ok": true,
+    "http_status": 200,
+    "error": null,
+    "forecast_days": 7,
+    "retry_after": null,
+    "detail": null,
+    "provider": "open-meteo",
+    "stale": false,
+    "attempts": 1,
+    "at": "2026-11-26T07:50:00+00:00"
+   },
+   {
+    "city": "Peshawar",
+    "ok": true,
+    "http_status": 200,
+    "error": null,
+    "forecast_days": 7,
+    "retry_after": null,
+    "detail": null,
+    "provider": "open-meteo",
+    "stale": false,
+    "attempts": 1,
+    "at": "2026-11-26T07:50:00+00:00"
+   },
+   {
+    "city": "Quetta",
+    "ok": true,
+    "http_status": 200,
+    "error": null,
+    "forecast_days": 7,
+    "retry_after": null,
+    "detail": null,
+    "provider": "open-meteo",
+    "stale": false,
+    "attempts": 1,
+    "at": "2026-11-26T07:50:00+00:00"
+   },
+   {
+    "city": "London",
+    "ok": true,
+    "http_status": 200,
+    "error": null,
+    "forecast_days": 7,
+    "retry_after": null,
+    "detail": null,
+    "provider": "open-meteo",
+    "stale": false,
+    "attempts": 1,
+    "at": "2026-11-26T07:50:00+00:00"
+   },
+   {
+    "city": "New York",
+    "ok": true,
+    "http_status": 200,
+    "error": null,
+    "forecast_days": 7,
+    "retry_after": null,
+    "detail": null,
+    "provider": "open-meteo",
+    "stale": false,
+    "attempts": 1,
+    "at": "2026-11-26T07:50:00+00:00"
+   },
+   {
+    "city": "Delhi",
+    "ok": true,
+    "http_status": 200,
+    "error": null,
+    "forecast_days": 7,
+    "retry_after": null,
+    "detail": null,
+    "provider": "open-meteo",
+    "stale": false,
+    "attempts": 1,
+    "at": "2026-11-26T07:50:00+00:00"
+   },
+   {
+    "city": "Jakarta",
+    "ok": true,
+    "http_status": 200,
+    "error": null,
+    "forecast_days": 7,
+    "retry_after": null,
+    "detail": null,
+    "provider": "open-meteo",
+    "stale": false,
+    "attempts": 1,
+    "at": "2026-11-26T07:50:00+00:00"
+   },
+   {
+    "city": "São Paulo",
+    "ok": true,
+    "http_status": 200,
+    "error": null,
+    "forecast_days": 7,
+    "retry_after": null,
+    "detail": null,
+    "provider": "open-meteo",
+    "stale": false,
+    "attempts": 1,
+    "at": "2026-11-26T07:50:00+00:00"
+   },
+   {
+    "city": "Lagos",
+    "ok": true,
+    "http_status": 200,
+    "error": null,
+    "forecast_days": 7,
+    "retry_after": null,
+    "detail": null,
+    "provider": "open-meteo",
+    "stale": false,
+    "attempts": 1,
+    "at": "2026-11-26T07:50:00+00:00"
+   },
+   {
+    "city": "Cairo",
+    "ok": true,
+    "http_status": 200,
+    "error": null,
+    "forecast_days": 7,
+    "retry_after": null,
+    "detail": null,
+    "provider": "open-meteo",
+    "stale": false,
+    "attempts": 1,
+    "at": "2026-11-26T07:50:00+00:00"
+   },
+   {
+    "city": "Sydney",
+    "ok": true,
+    "http_status": 200,
+    "error": null,
+    "forecast_days": 7,
+    "retry_after": null,
+    "detail": null,
+    "provider": "open-meteo",
+    "stale": false,
+    "attempts": 1,
+    "at": "2026-11-26T07:50:00+00:00"
+   },
+   {
+    "city": "Tokyo",
+    "ok": true,
+    "http_status": 200,
+    "error": null,
+    "forecast_days": 7,
+    "retry_after": null,
+    "detail": null,
+    "provider": "open-meteo",
+    "stale": false,
+    "attempts": 1,
+    "at": "2026-11-26T07:50:00+00:00"
+   },
+   {
+    "city": "Los Angeles",
+    "ok": true,
+    "http_status": 200,
+    "error": null,
+    "forecast_days": 7,
+    "retry_after": null,
+    "detail": null,
+    "provider": "open-meteo",
+    "stale": false,
+    "attempts": 1,
+    "at": "2026-11-26T07:50:00+00:00"
+   },
+   {
+    "city": "Athens",
+    "ok": true,
+    "http_status": 200,
+    "error": null,
+    "forecast_days": 7,
+    "retry_after": null,
+    "detail": null,
+    "provider": "open-meteo",
+    "stale": false,
+    "attempts": 1,
+    "at": "2026-11-26T07:50:00+00:00"
+   },
+   {
+    "city": "Cape Town",
+    "ok": true,
+    "http_status": 200,
+    "error": null,
+    "forecast_days": 7,
+    "retry_after": null,
+    "detail": null,
+    "provider": "open-meteo",
+    "stale": false,
+    "attempts": 1,
+    "at": "2026-11-26T07:50:00+00:00"
+   },
+   {
+    "city": "Vancouver",
+    "ok": true,
+    "http_status": 200,
+    "error": null,
+    "forecast_days": 7,
+    "retry_after": null,
+    "detail": null,
+    "provider": "open-meteo",
+    "stale": false,
+    "attempts": 1,
+    "at": "2026-11-26T07:50:00+00:00"
+   },
+   {
+    "city": "Marseille",
+    "ok": true,
+    "http_status": 200,
+    "error": null,
+    "forecast_days": 7,
+    "retry_after": null,
+    "detail": null,
+    "provider": "open-meteo",
+    "stale": false,
+    "attempts": 1,
+    "at": "2026-11-26T07:50:00+00:00"
+   }
+  ]
+ },
+ "receipts": {
+  "count": 2,
+  "receipts": [
+   {
+    "city": "Los Angeles",
+    "disease": null,
+    "risk_level": "HIGH",
+    "score": 65,
+    "drivers": [
+     "5 city-specific wildfire reports in 7 days",
+     "High wind: 30.7 km/h"
+    ],
+    "vertical": "wildfire",
+    "content_hash": "sha256:336283ecc0c48559e167b9346842a8779654788cde3ee6822aff1c349d734137",
+    "receipt_id": "rcpt-336283ecc0c4",
+    "status": "OPEN",
+    "issued_at": "2026-11-26T12:50:12+05:00"
+   },
+   {
+    "city": "Cape Town",
+    "disease": null,
+    "risk_level": "HIGH",
+    "score": 55,
+    "drivers": [
+     "5 city-specific wildfire reports in 7 days"
+    ],
+    "vertical": "wildfire",
+    "content_hash": "sha256:c8cd0f19221c82c805e243af0af89a6594a9247c234693ac7f0512477418180c",
+    "receipt_id": "rcpt-c8cd0f19221c",
+    "status": "OPEN",
+    "issued_at": "2026-11-26T12:50:12+05:00"
+   }
+  ]
+ },
+ "scoreboard": {
+  "total_receipts": 2,
+  "resolved": 0,
+  "verdicts": {}
+ },
+ "cities": {
+  "cities": [
+   "Karachi",
+   "Lahore",
+   "Islamabad",
+   "Peshawar",
+   "Quetta",
+   "London",
+   "New York",
+   "Delhi",
+   "Jakarta",
+   "São Paulo",
+   "Lagos",
+   "Cairo",
+   "Sydney",
+   "Tokyo"
+  ]
+ },
+ "grid": {
+  "card_count": 34,
+  "city_count": 19,
+  "levels": {
+   "LOW": 29,
+   "MODERATE": 3,
+   "HIGH": 2
+  },
+  "verticals": {
+   "bio-surveillance": 14,
+   "wildfire": 6,
+   "supply-chain": 14
+  },
+  "engine": "deterministic+narrator",
+  "timestamp": "2026-11-26 12:50 PKT",
+  "signals": {
+   "news": 257,
+   "news_shared_pool": 106,
+   "news_city_scoped": 151,
+   "social": 113,
+   "cities": 19,
+   "wildfire_city_scoped": 76,
+   "supply_chain_city_scoped": 63
+  }
+ },
+ "hero_la_wildfire": {
+  "city": "Los Angeles",
+  "vertical": "wildfire",
+  "disease": null,
+  "risk_level": "HIGH",
+  "risk_score": 65,
+  "confidence": 0.95,
+  "drivers": [
+   {
+    "kind": "news",
+    "text": "5 city-specific wildfire reports in 7 days"
+   },
+   {
+    "kind": "weather",
+    "text": "High wind: 30.7 km/h"
+   }
+  ],
+  "evidence_line": "5 city-specific wildfire reports in the last 7 days — latest 24 Nov.",
+  "evidence_count": 5,
+  "summary": "Los Angeles shows HIGH wildfire risk: 5 city-specific reports in 7 days.",
+  "recommendation": "Investigate signals",
+  "sources": [
+   {
+    "title": "Breaking: New wildfire reported in Los Angeles County on Nov. 24 - Sacramento Bee",
+    "outlet": "Sacramento Bee",
+    "published": "2026-11-24",
+    "url": "https://news.google.com/rss/articles/CBMidEFVX3lxTFB4S0Z0aFlQYUhmRHVpcktoZ2RLWjlYa0Vra1hxWjZXZ3dWWUhyX1NPTHhHQ2loenRSTTg0emc4VFRqQ2ZmaG1jMmw1Tkx4RHptenRlRW5rb0hLb3FxdkJwRUdhOHl3eVdQQS1ZNzJSZlBpY2lD?oc=5"
+   },
+   {
+    "title": "Man accused of sparking deadly Los Angeles wildfire found guilty - The Guardian",
+    "outlet": "The Guardian",
+    "published": "2026-11-20",
+    "url": "https://news.google.com/rss/articles/CBMilwFBVV95cUxPVkRlbDBKZ2NaNE9na2d5eWpGa1QzUjlpVHhhMmpZalhmTE96U2tRYk5Gd1hhNThxZGhQbHFmT3pXQXVtaXd2SElZUld0djNSeUVZTC1PenRGeWh6QTBvZmtxbXp5ZzR4Z09iMXhTTzhUdTdvaXFnNi1EODZJVUJwUTZZQktrMm1nOHNEY1Bncm85ME9JS1RN?oc=5"
+   },
+   {
+    "title": "Breaking: New wildfire reported in Los Angeles County on Nov. 20 - Sacramento Bee",
+    "outlet": "Sacramento Bee",
+    "published": "2026-11-21",
+    "url": "https://news.google.com/rss/articles/CBMidEFVX3lxTE9tMGpfWmd5RXV3Xy1VME0zOTNUUVIzN1pNX1pZanZlazFSOFFCVkZ5aHRtMTNSdmpQUi1pQ0QyZzJ4U1N0Y0FWRC1naVhndlRET2RMVUtSbE0yd2lJSmtuc0paYmRrSmdlblNlRGRsWk83SWdZ?oc=5"
+   },
+   {
+    "title": "Palisades arson retrial ends with conviction of man accused of sparking deadly wildfire - Los Angeles Times",
+    "outlet": "Los Angeles Times",
+    "published": "2026-11-21",
+    "url": "https://news.google.com/rss/articles/CBMikgFBVV95cUxOMGluYTNRdm5FZUZ6T0liS0RJV3I4Z1pMZElrLWRKS2ZVQVRwWlpMSS1UZlkxOGdCbmZwN3pVUkNtd1RRdnBUbjY0dkgzWlNqVGp2aWs0eDRoTEdrMEtfRWVnb1I2Z3drNE5FSmoyT005dVgyU3hNcTdWcldvSHVWa19SZVFiTmtKMEt3WGRtMDZiQQ?oc=5"
+   },
+   {
+    "title": "Breaking: New wildfire reported in Los Angeles County on Nov. 19 - Sacramento Bee",
+    "outlet": "Sacramento Bee",
+    "published": "2026-11-19",
+    "url": "https://news.google.com/rss/articles/CBMidEFVX3lxTE1CZ05UZnZzajMwN3NVVlhOMmFqdHY1bVBoMlp2alpuTW0zYzF4cTROaGhTaTBwV2lQV2lwSzZPMFNodjdEUGp1VldKY1J1VXNfNm9WbVpLQjFYX0dKODBpQURydUpLRXlubnpWVG5lV0lFQzZk?oc=5"
+   }
+  ],
+  "source_count": 5,
+  "chart": [
+   {
+    "label": "2026-11-26",
+    "value": 0.0
+   },
+   {
+    "label": "2026-11-27",
+    "value": 0.0
+   },
+   {
+    "label": "2026-11-28",
+    "value": 0.0
+   },
+   {
+    "label": "2026-11-29",
+    "value": 0.0
+   },
+   {
+    "label": "2026-11-30",
+    "value": 0.0
+   },
+   {
+    "label": "2026-12-01",
+    "value": 12.6
+   },
+   {
+    "label": "2026-12-02",
+    "value": 13.5
+   }
+  ]
+ },
+ "london_dengue": {
+  "city": "London",
+  "vertical": "bio-surveillance",
+  "disease": "Dengue",
+  "risk_level": "LOW",
+  "risk_score": 20,
+  "confidence": 0.6,
+  "drivers": [
+   {
+    "kind": "news",
+    "text": "1 city-specific report in 7 days"
+   }
+  ],
+  "evidence_line": "1 city-specific dengue report in the last 7 days — latest 23 Nov.",
+  "evidence_count": 1,
+  "summary": "London remains at LOW risk for Dengue, based on a single report indicating that the UK has stepped up trapping efforts after mosquitoes capable of spreading the disease were found breeding in homes (Yahoo, 2026-11-23). Confidence in this assessment is moderate given the limited evidence base. Current conditions do not indicate an elevated threat at this time.",
+  "recommendation": "Continue routine monitoring of local mosquito activity and surveillance reports for any change in Dengue-related signals in London.",
+  "sources": [
+   {
+    "title": "UK steps up trapping efforts after mosquitoes that can spread dengue breed in London homes - Yahoo",
+    "outlet": "Yahoo",
+    "published": "2026-11-23",
+    "url": "https://news.google.com/rss/articles/CBMimwFBVV95cUxPVEZyZ1NRa3B3b3kwcDVBRlRqdEltdnEtUmVQeW1xVGE1QzV0dkdJSnNoSkRRV2IwTVhEenVVSXZOdlEyMl95a01oQTZnVERvWFFkMVZhdmRjMDNzdWtBMzJSc1JGV0FzSElIUEFjVFZkVGZXVHJzX211a1RzUXkyTGxQMDNEQ1FqUDhvLWlGYWxmOHZnZ3B0WVdwbw?oc=5"
+   }
+  ],
+  "source_count": 1,
+  "chart": [
+   {
+    "label": "2026-11-26",
+    "value": 0.0
+   },
+   {
+    "label": "2026-11-27",
+    "value": 0.2
+   },
+   {
+    "label": "2026-11-28",
+    "value": 3.2
+   },
+   {
+    "label": "2026-11-29",
+    "value": 0.6
+   },
+   {
+    "label": "2026-11-30",
+    "value": 0.0
+   },
+   {
+    "label": "2026-12-01",
+    "value": 0.0
+   },
+   {
+    "label": "2026-12-02",
+    "value": 10.3
+   }
+  ]
+ },
+ "cape_town_wildfire": {
+  "city": "Cape Town",
+  "vertical": "wildfire",
+  "disease": null,
+  "risk_level": "HIGH",
+  "risk_score": 55,
+  "confidence": 0.95,
+  "drivers": [
+   {
+    "kind": "news",
+    "text": "5 city-specific wildfire reports in 7 days"
+   }
+  ],
+  "evidence_line": "5 city-specific wildfire reports in the last 7 days — latest 22 Nov.",
+  "evidence_count": 5,
+  "summary": "Cape Town shows HIGH wildfire risk: 5 city-specific reports in 7 days.",
+  "recommendation": "Investigate signals",
+  "sources": [
+   {
+    "title": "Wildfire Map Spotlight: De Hoop–Malgas–Potberg wildfire, Western Cape, South Africa - IQAir",
+    "outlet": "IQAir",
+    "published": "2026-11-22",
+    "url": "https://news.google.com/rss/articles/CBMitAFBVV95cUxOOXQ2UVNXcW9pZ0hGX0d3eklvbFdPeWdONkE4ak5CTks5bVB4YnczZ0htYlNranM5ZXZUUnAtekNJZG1IQ1RBenhiV1pUZkhhWF9nNldQVFR5dnl3aHRJTXZTWF9IU05Sc3FrMl9KcTlCTExSZzA5ZU9mT29tOERmdVVrZnR3M3lMWkUxWGVncTY1SWFQNkdNTS03eFBlMjJteVlENGJCMDJiUUdOcExQQ0RadTg?oc=5"
+   },
+   {
+    "title": "Fifteen houses ablaze as wildfire spreads across 25,000 hectares in Western Cape - EWN",
+    "outlet": "EWN",
+    "published": "2026-11-21",
+    "url": "https://news.google.com/rss/articles/CBMiswFBVV95cUxNeTlrcUI1OUNKVjNlcElYMUs2Tmk0a04wdjE5Q2NsN3R2elFHNTkwMjZNTkpIUVJDRzMtU21PMGVOTUt5R0xHWFJtaDVmUGhBdUxSS19yZm4zcWFjNjYydW45dWFvS0drUWRELW5DNkc2X3d3SjdFbk4xNjVNNThZLXNIM1NMZG9FSE1sX3pxb0loT0pnNlVQMGctT19rcFlJSzA4Ri00X0pDYWVFN3BGU25NWQ?oc=5"
+   },
+   {
+    "title": "Update: At least 15 homes burning as crews battle raging De Hoop blaze - Cape Town ETC",
+    "outlet": "Cape Town ETC",
+    "published": "2026-11-21",
+    "url": "https://news.google.com/rss/articles/CBMiqwFBVV95cUxNMi0tSGZ5dG9CaDAxek1hNm1PeE1vMWs2UmN6R09mTEQwb0ZzWG5nYmc1SHdIbXFlQmtOUGF6S0dRVUI0UDFZZlZWRnY3Z0NKNzRENjFDVFdBQ3Y4eFBhbGpUcWtheG45RHlBaXpoYjRRTGt2UmV3M3ZEaVo0UjlWenB3TDhXeWJ2Q0oyeTBfSzVTeU5oVDh6MVpRdjRsWGtGeEY5alItb242QnM?oc=5"
+   },
+   {
+    "title": "Malgas wildfire destroys 24 homes as nearly 25,000 hectares burn - Cape Times",
+    "outlet": "Cape Times",
+    "published": "2026-11-22",
+    "url": "https://news.google.com/rss/articles/CBMiYEFVX3lxTFB0MmNfTmZSZnNRVlJXRmF2UXQtS0V6M2o5Zl9walY1REpRQW5lSUQxd0x2MHR2VjB2NkRadVRaeXduRThKdHJHcVZzNktKeWNLb3Y2YmJYQjg1dVZiSkZ3aA?oc=5"
+   },
+   {
+    "title": "Wildfire danger warning issued for Western Cape and six other provinces - Cape Town ETC",
+    "outlet": "Cape Town ETC",
+    "published": "2026-11-19",
+    "url": "https://news.google.com/rss/articles/CBMiswFBVV95cUxOLXJRMXZkR2NKMmh5RkEwUGlzMGJiYkFueU5XM3dQS0ZMWG02YjM2eWdpb1RTMGF4WUJCRzVHcnhWYWpIRDg2SW1HQktlS2dwaDM0Q0VOcHZnenBzbUg4N2dPVkRHaXlDSUhaZ2JEb0JSSm85VW95RE5Ha0pqaW02UU9BQ2ZLeHdRUExVRGR1ZkZQblU5T3ZjU0F0SExpaDFBMlBLR2ptNWhaTlhselhHMGkzOA?oc=5"
+   }
+  ],
+  "source_count": 5,
+  "chart": [
+   {
+    "label": "2026-11-26",
+    "value": 0.0
+   },
+   {
+    "label": "2026-11-27",
+    "value": 0.0
+   },
+   {
+    "label": "2026-11-28",
+    "value": 5.0
+   },
+   {
+    "label": "2026-11-29",
+    "value": 0.0
+   },
+   {
+    "label": "2026-11-30",
+    "value": 0.0
+   },
+   {
+    "label": "2026-12-01",
+    "value": 0.0
+   },
+   {
+    "label": "2026-12-02",
+    "value": 0.0
+   }
+  ]
+ },
+ "empty_bio": {
+  "city": "Karachi",
+  "vertical": "bio-surveillance",
+  "disease": "Dengue",
+  "risk_level": "LOW",
+  "risk_score": 0,
+  "confidence": 0.4,
+  "drivers": [
+   {
+    "kind": "model",
+    "text": "no city-specific outbreak signal"
+   }
+  ],
+  "evidence_line": "0 city-specific dengue reports in the last 7 days; risk reflects weather only.",
+  "evidence_count": 0,
+  "summary": "Karachi shows LOW risk for Dengue: 0 city-specific reports in 7 days.",
+  "recommendation": "Monitor — no city-specific outbreak reports",
+  "sources": [],
+  "source_count": 0,
+  "chart": [
+   {
+    "label": "2026-11-26",
+    "value": 0.0
+   },
+   {
+    "label": "2026-11-27",
+    "value": 0.0
+   },
+   {
+    "label": "2026-11-28",
+    "value": 0.0
+   },
+   {
+    "label": "2026-11-29",
+    "value": 0.0
+   },
+   {
+    "label": "2026-11-30",
+    "value": 0.0
+   },
+   {
+    "label": "2026-12-01",
+    "value": 0.0
+   },
+   {
+    "label": "2026-12-02",
+    "value": 0.0
+   }
+  ]
+ },
+ "weather_forces_fallback": {
+  "captured_at": "2026-11-26T08:08:49+00:00",
+  "condition_replayed": "Open-Meteo HTTP 429 daily-quota (verbatim 2026-11-25 reply)",
+  "configured_cities": 19,
+  "attempted_cities": 19,
+  "ok": 19,
+  "failed": 0,
+  "served_by": [
+   "met-norway"
+  ],
+  "cities": [
+   {
+    "city": "Karachi",
+    "provider": "met-norway",
+    "ok": true,
+    "forecast_days": 10,
+    "error": null
+   },
+   {
+    "city": "Lahore",
+    "provider": "met-norway",
+    "ok": true,
+    "forecast_days": 10,
+    "error": null
+   },
+   {
+    "city": "Islamabad",
+    "provider": "met-norway",
+    "ok": true,
+    "forecast_days": 10,
+    "error": null
+   },
+   {
+    "city": "Peshawar",
+    "provider": "met-norway",
+    "ok": true,
+    "forecast_days": 10,
+    "error": null
+   },
+   {
+    "city": "Quetta",
+    "provider": "met-norway",
+    "ok": true,
+    "forecast_days": 10,
+    "error": null
+   },
+   {
+    "city": "London",
+    "provider": "met-norway",
+    "ok": true,
+    "forecast_days": 10,
+    "error": null
+   },
+   {
+    "city": "New York",
+    "provider": "met-norway",
+    "ok": true,
+    "forecast_days": 10,
+    "error": null
+   },
+   {
+    "city": "Delhi",
+    "provider": "met-norway",
+    "ok": true,
+    "forecast_days": 10,
+    "error": null
+   },
+   {
+    "city": "Jakarta",
+    "provider": "met-norway",
+    "ok": true,
+    "forecast_days": 10,
+    "error": null
+   },
+   {
+    "city": "São Paulo",
+    "provider": "met-norway",
+    "ok": true,
+    "forecast_days": 10,
+    "error": null
+   },
+   {
+    "city": "Lagos",
+    "provider": "met-norway",
+    "ok": true,
+    "forecast_days": 10,
+    "error": null
+   },
+   {
+    "city": "Cairo",
+    "provider": "met-norway",
+    "ok": true,
+    "forecast_days": 10,
+    "error": null
+   },
+   {
+    "city": "Sydney",
+    "provider": "met-norway",
+    "ok": true,
+    "forecast_days": 10,
+    "error": null
+   },
+   {
+    "city": "Tokyo",
+    "provider": "met-norway",
+    "ok": true,
+    "forecast_days": 10,
+    "error": null
+   },
+   {
+    "city": "Los Angeles",
+    "provider": "met-norway",
+    "ok": true,
+    "forecast_days": 10,
+    "error": null
+   },
+   {
+    "city": "Athens",
+    "provider": "met-norway",
+    "ok": true,
+    "forecast_days": 10,
+    "error": null
+   },
+   {
+    "city": "Cape Town",
+    "provider": "met-norway",
+    "ok": true,
+    "forecast_days": 10,
+    "error": null
+   },
+   {
+    "city": "Vancouver",
+    "provider": "met-norway",
+    "ok": true,
+    "forecast_days": 10,
+    "error": null
+   },
+   {
+    "city": "Marseille",
+    "provider": "met-norway",
+    "ok": true,
+    "forecast_days": 10,
+    "error": null
+   }
+  ]
+ },
+ "onchain_settlement": {
+  "rpc_url": "https://sepolia.base.org",
+  "tx_hash": "0xac02bcbbe78e85760f3ae45400d457f750c9f0fd61c0fc9d06189fe84aa9c4cf",
+  "status": "0x1",
+  "block_number": 59597289,
+  "to": "0x036cbd53842c5426634e7929541ec2318f3dcf7e",
+  "from": "0x97d38aa5de015245dcca76305b53abe6da25f6a5",
+  "log_count": 2,
+  "found": true
+ }
+}
