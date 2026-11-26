@@ -2180,3 +2180,98 @@ deploy can still be lost. True durability needs a mounted Render disk or an exte
 - `docs(spine): checkpoint Soldier W-8`
 
 **Gate state after this checkpoint: a settlement cannot come back without a card.**
+
+---
+
+## 2026-11-26 — Soldier V-3
+
+**Scope:** the operator approved V-2's flow and animations and ordered three changes —
+mirror the live console's design system, switch type to Inter, and drop judge-addressing
+captions. Owned files only: `demo/render_video.py`, `demo/outbreak-sentinel-demo.mp4`
+(rebuilt), `demo/assets/fonts/` (new), `demo/screenshots/` (regenerated),
+`demo/VIDEO-CAPTIONS.md`, `SPINE.md`, plus the fork
+`demo/outbreak-sentinel-demo-v1-backup.mp4`. Did **not** touch `app.py`, `tests/`,
+`dashboard/`, `telegraph/` (Soldier W-8 ran in parallel and merged mid-session — the suite
+went 125 → 132 because of their tests, not mine). Never `git add -A`.
+
+### Fork first
+`cp demo/outbreak-sentinel-demo.mp4 demo/outbreak-sentinel-demo-v1-backup.mp4`, committed
+alone (`59f0df6`). At fork time both files hashed
+`sha256 11d1566db9abc9b4d16acf3126e2e9fc1d8a4237baae1e83d83c014e281b34e5`, so the approved
+v1 remains in the repo verbatim.
+
+### Design system, read out of the console (not invented)
+Tokens transcribed from `dashboard/index.html` `:root` and converted OKLCH → sRGB at
+identical L/C/h:
+
+| role | token | sRGB |
+|---|---|---|
+| ground | `--bg` 0.155 0.008 146 | `#0a0d0a` |
+| surfaces | `--surface-1/2/3` | `#121612` / `#191e19` / `#222822` |
+| hairlines | `--line`, `--line-strong` | `#2b302b` / `#404840` |
+| ink ladder | `--ink/mid/dim/faint` | `#f2f6f2` / `#e3e9e3` / `#d9dfd9` / `#cfd5cf` |
+| accent (live/verified only) | `--accent` 0.862 0.190 128 | `#ade84f` |
+| CRITICAL | `--sev-critical` hue 22 | `#ff9a99` |
+| HIGH | `--sev-high` hue 44 | `#ffa976` |
+| MODERATE | `--sev-moderate` hue 92 | `#f4d269` |
+| LOW | `--sev-low` hue 146 | `#b6c1b6` |
+
+Anatomy reused, not approximated: masthead brand mark + `live` status badge, the five-cell
+`.instruments` strip, the `Top open signal` hero with its severity top edge, risk cards with
+a 3px severity **left** edge plus right-aligned `score/100` and `.level` wash chip, tag and
+cite chips, `.rail-row` key/value telemetry, and the 7-day spark drawn from `chart[]`
+(LOW cards take the shared hairline edge, exactly as `.lv-LOW` does).
+
+### Inter, vendored with its licence
+Probed before download (house rule), verbatim:
+- HEAD `200` — `https://github.com/rsms/inter/releases/download/v4.1/Inter-4.1.zip`
+- HEAD `200` — `https://raw.githubusercontent.com/rsms/inter/master/docs/font-files/InterVariable.ttf`
+- HEAD `200` — `https://raw.githubusercontent.com/rsms/inter/master/LICENSE.txt`
+- HEAD `404` — `https://raw.githubusercontent.com/rsms/inter/master/LICENSE`
+
+Downloaded `InterVariable.ttf` (HTTP `200`, 879,708 B) and `OFL.txt` (HTTP `200`, 4,380 B)
+into `demo/assets/fonts/`. The variable axes are driven per call through
+`set_variation_by_axes([opsz, weight])` (Optical size 14–32, Weight 100–900; FreeType
+2.14.3), so bold and display sizes are real instances, not synthesised. Inter ships no mono
+companion, so telemetry uses DejaVu Sans Mono — the role the console's `--font-mono` stack
+plays. No CDN, no hotlink. The DejaVu fallback was not needed: the download succeeded.
+
+### Voice
+Removed the judge-addressing line in scene 4 (`A judge sees degradation, not a dead panel…`)
+and neutralised the other narration; the honest-capture disclaimer is kept verbatim. The
+per-scene caption diff is recorded in `demo/VIDEO-CAPTIONS.md`.
+
+### Music
+Deliberately none. ffmpeg is invoked with `-an` and ffprobe reports **zero audio streams**.
+A copyrighted track in a public submission is a licensing hazard, so the cut stays
+caption-driven.
+
+### Truth rules
+Same snapshot (`state/video-capture/snapshot.json`) — **no re-capture**. Every rendered value
+interpolates captured fields. Scene 5's 1.5× fitted evidence hold is preserved; `ZOOM_BOX`
+moved to `(120, 162, 1800, 916)` to sit under the new caption bar, and the plate still
+raises `SystemExit` rather than cropping.
+
+### Verification
+- `ffprobe` **v2**: `duration=232.000000`, `1920x1080`, `h264`, `30/1`, `nb_frames=6960`,
+  `size=4497530`; `-select_streams a` → **0** streams.
+- `ffprobe` **v1 backup**: `duration=232.000000`, `1920x1080`, `h264`, `30/1`,
+  `size=4926657`.
+- `env -u PYTHONPATH .venv/bin/python -m pytest -q` → **132 passed, 3 warnings in 5.65s**.
+- Bbox audit over all six stills: **0** body texts outside the safe area and **0** overlaps,
+  after fixing two defects it caught — the `ACTION` chip overrunning its text origin, and a
+  `sev_chip((0, 0))` width probe that was painting a stray chip at the frame origin.
+- Severity edges sampled in rendered pixels: LA/HIGH `(255,169,118)`, London and Karachi
+  LOW `(64,72,64)` — the console values, not near-misses.
+
+### For the next owner
+- `demo/screenshots/*.png` are re-rendered through the same code path as the video (not
+  ffmpeg seeks) and now show the V-3 look; they are the six frames for the parent's vision
+  gate. This checkpoint does not self-score.
+- Determinism was **not** re-measured this pass (a second 20-minute render was not spent);
+  V-2's `md5` determinism result stands only for V-2 bytes.
+- `demo/SCRIPT-60s.md` and `demo/SHOTLIST.md` still describe the older 60 s judge cut and were
+  intentionally not touched.
+
+**Commits:** `chore(demo): fork v1 demo video as v1-backup before v2 rework`, then
+`feat(demo): V-3 — console-mirrored visuals, Inter, neutral captions`.
