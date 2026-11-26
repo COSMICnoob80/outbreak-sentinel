@@ -2275,3 +2275,81 @@ raises `SystemExit` rather than cropping.
 
 **Commits:** `chore(demo): fork v1 demo video as v1-backup before v2 rework`, then
 `feat(demo): V-3 — console-mirrored visuals, Inter, neutral captions`.
+
+---
+
+## 2026-11-26 — Soldier V-4
+
+**Scope:** the vision gate scored video v2 **9.5/10** and left exactly two nits; this
+checkpoint fixes only those two. Owned files only: `demo/render_video.py`,
+`demo/outbreak-sentinel-demo.mp4` (rebuilt), `demo/screenshots/` (regenerated),
+`demo/VIDEO-CAPTIONS.md`, `SPINE.md`. Did **not** touch `app.py`, `tests/`, `dashboard/`,
+`telegraph/`. Never `git add -A` — `history/receipts.jsonl` was already dirty at session
+start (ledger rows from an unrelated live run) and is **not** part of these commits.
+
+### Nit 1 — the leaked production note
+The scene-5 detail hold drew `evidence detail — whole panel fitted, then 1.5x` at
+`(MARGIN_X, 124)`. That is an editing note, and a viewer could read it. It is now
+**`settlement detail — full ledger record`** — a label describing what the frame actually
+shows (the on-chain settlement read back from the ledger). Same position, same accent mono.
+
+### Nit 2 — frames 2 and 3 were near-duplicates
+Scene 2 had no ending move, so sheet frame 2 (`p=0.55`) and frame 3 (`p=0.95`) showed the
+same console layout at two reveal stages. Scene 2 now ends exactly the way scene 5 does —
+a cut to a fitted detail plate that eases to 1:1 and holds:
+
+- `console_base_body(img, p, snap)` is the old scene body, extracted verbatim; the counting
+  pass in `measure()` still measures that same layout, so reveal pacing is unchanged
+  (`counts {0:69, 1:97, 2:45, 3:48, 4:66, 5:27}`).
+- `sources_plate(snap)` draws **all five cited reports as numbered rows** (01–05) at
+  `SOURCES_ZOOM = 1.6` — index, verbatim headline, then `outlet · published` — under a pairing
+  line that states `5 sources on the card · news driver: 5 city-specific wildfire reports in
+  7 days · one list`. The point the caption makes is now visible: the count on the card and the
+  rendered sources are one list, not two claims that happen to agree.
+- `sources_detail_frame()` eases scale `1/1.6 → 1:1` inside `SOURCES_BOX = (120, 162, 1800,
+  916)`, centred, so the widest framing IS the layout — no row can leave the frame at any
+  instant. The plate raises `SystemExit` rather than drawing if the text cannot fit.
+- Scene 2 captions, now four: the grid line, then
+  `Los Angeles — wildfire HIGH 65: 5 city-specific reports in seven days, plus a high-wind
+  driver.` (was `five …` — the count is interpolated now, not spelled out),
+  `The card counts 5 sources; the news driver counts 5 reports. Same number.`, and
+  `Each of those stories, one row per cited report — so the count on the card and the rendered
+  sources are visibly one list.` — which lands on the hold.
+- Sheet picks are unchanged, so frame 3 of the contact sheet is now the cited-sources zoom
+  and the only frame-2/frame-3 difference is a real one.
+- On-screen header for the hold: `cited sources — every cited report, one row each`.
+
+### Defects the full-resolution check caught (fixed before ship)
+1. Row index drew at `pad + sz(16)` and collided with the headline → index column widened
+   (`indent = sz(56)`, index at `pad + sz(6)`).
+2. Rows numbered from `00` → `enumerate(rows, 1)`.
+3. A dead band under the list → gap scale is now `1 + (budget-4)/gap_base`, so surplus space
+   *adds* to the gaps instead of substituting for them.
+4. That change first overran the box by **3 px** and the `SystemExit` fit guard fired, exactly
+   as designed; gaps now floor instead of round, so a gap can give back a pixel but never take
+   one. Plate measures `(1680, 754)` inside a `754`-tall box.
+
+### Determinism
+Same snapshot (`state/video-capture/snapshot.json`), **no re-capture**. Two separate processes
+rendered frames `(1, 0.95)` and `(4, 0.95)` and hashed identically
+(`db3a5b8f89c3b5c7`, `ff4019d64d1acc25`).
+
+### Verification
+- `ffprobe` **v2 rebuilt**: `duration=232.000000`, `1920x1080`, `h264`, `30/1`,
+  `nb_frames=6960`, `size=5115399`, `bit_rate=176393` — inside the 120–280 s gate.
+- Frames decoded **out of the mp4** (not just the renderer): 74 s shows the cited-sources
+  hold, 210 s shows `settlement detail — full ledger record`. Both fixes are in the encoded cut.
+- `env -u PYTHONPATH .venv/bin/python -m pytest -q` → **`132 passed, 3 warnings in 7.19s`**.
+- v1 backup untouched: `md5 42b8a387cd539c89a84eeebaa997fd26` before and after (byte-identical,
+  never opened for writing).
+- Six stills re-rendered through the same code path, plus `demo/screenshots/montage-v3.png`.
+
+### For the next owner
+- `demo/SCRIPT-60s.md`, `demo/SHOTLIST.md` still describe the older 60 s judge cut (carried
+  over from V-3, still intentional).
+- Video grew 4,497,530 → 5,115,399 B: scene 2 now carries a second full-layout hold. Still
+  well under any submission limit, still `-an` with zero audio streams.
+- Parent vision-judges the rebuilt sheet before ship — this checkpoint does not self-score.
+
+**Commits:** `fix(demo): V-4 — viewer-facing settlement label, cited-sources detail hold`
+(`10c3034`), then this SPINE checkpoint.
