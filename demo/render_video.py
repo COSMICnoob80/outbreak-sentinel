@@ -10,9 +10,13 @@ ffmpeg — no PNGs on disk.
 
     env -u PYTHONPATH .venv/bin/python demo/render_video.py
     env -u PYTHONPATH .venv/bin/python demo/render_video.py --montage /tmp/m.png
+    env -u PYTHONPATH .venv/bin/python demo/render_video.py --stills demo/screenshots
 
 Style mirrors the console: near-black background, one accent per meaning,
-DejaVu Sans Mono, progressive reveal, no zoom or pan.
+DejaVu Sans Mono, progressive reveal. The camera never leaves the frame: the
+only move is scene 5's ending detail hold, which fits the whole evidence panel
+first and then eases up to a 1.5x layout that is itself laid out inside the
+frame — so nothing is ever cropped, zoomed past, or panned past the edge.
 """
 
 from __future__ import annotations
@@ -57,6 +61,16 @@ CAPTION_TOP = 968
 # holds a fully-drawn frame so the later captions land on complete content.
 REVEAL_SPAN = 0.55
 
+# Scene 5 ends on a detail hold of the dense evidence panels. The block is laid
+# out once at ZOOM_MAX; the push-in eases from the 1.0x layout to that fitted
+# one, so the widest framing IS the layout — the camera can never pass the frame
+# edge, and no column or glyph can be clipped.
+ZOOM_MAX = 1.5
+ZOOM_RAMP_S = 0.5
+ZOOM_HOLD_S = 4.0
+ZOOM_TOTAL_S = ZOOM_RAMP_S + ZOOM_HOLD_S
+ZOOM_BOX = (MARGIN_X, 176, W - MARGIN_X, CAPTION_TOP - 28)
+
 
 def mix(a, b, f):
     f = max(0.0, min(1.0, f))
@@ -86,6 +100,33 @@ def wrap(text: str, fnt, max_w: int) -> list[str]:
     if cur:
         lines.append(cur)
     return lines
+
+
+def wrap_sep(text: str, fnt, max_w: int, sep: str = " · "):
+    """Break on field separators first, so a clause is never orphaned.
+
+    Plain word-wrap can strand a short tail ("PKT") on its own line. Packing
+    whole ``sep``-delimited fields keeps each rendered line readable, and a
+    field that is itself too wide still falls back to word-wrap.
+    """
+    parts = (text or "").split(sep)
+    lines, cur = [], ""
+    for part in parts:
+        trial = part if not cur else f"{cur}{sep}{part}"
+        if fnt.getlength(trial) <= max_w:
+            cur = trial
+            continue
+        if cur:
+            lines.append(cur)
+        if fnt.getlength(part) > max_w:
+            sub = wrap(part, fnt, max_w)
+            lines.extend(sub[:-1])
+            cur = sub[-1]
+        else:
+            cur = part
+    if cur:
+        lines.append(cur)
+    return lines or [""]
 
 
 def trunc(s: str, fnt, max_w: int) -> str:
@@ -217,7 +258,9 @@ def scene_cold_open(img, p, S):
     for ln in wrap("autonomous early-warning agent, paid through Telegraph", font(34), left_w):
         y += f.text((MARGIN_X, y), ln, 34, DIM) + 8
     y += 24
-    f.panel([(MARGIN_X, y), (MARGIN_X + 660, y + 62)], CYAN, (10, 20, 30))
+    # Width follows the captured URL so the pill can never clip its own text.
+    pill_w = 128 + int(font(24).getlength(snap["live_base"])) + 26
+    f.panel([(MARGIN_X, y), (MARGIN_X + pill_w, y + 62)], CYAN, (10, 20, 30))
     f.text((MARGIN_X + 26, y + 14), "LIVE", 28, CYAN, True)
     f.text((MARGIN_X + 128, y + 18), snap["live_base"], 24, DIM)
     y += 92
@@ -234,14 +277,18 @@ def scene_cold_open(img, p, S):
            26, DIM)
     h = snap["health"]
     bx = 1180
-    f.panel([(bx, 220), (W - MARGIN_X, 520)])
-    fy = 260
-    for label, val, col in (
+    rows = (
         ("GET /health", f"{h.get('status')} · v{h.get('version')}", GREEN),
         ("service", h.get("service"), TEXT),
         ("captured (UTC)", snap["captured_at"], DIM),
         ("grid timestamp", grid["timestamp"], DIM),
-    ):
+    )
+    # Height follows the row count so the last value can never fall outside.
+    # Mirrors the loop below: value sits 34px under its label, rows 84 apart.
+    panel_h = 40 + (len(rows) - 1) * 84 + 34 + 24 + 18
+    f.panel([(bx, 220), (W - MARGIN_X, 220 + panel_h)])
+    fy = 260
+    for label, val, col in rows:
         f.text((bx + 40, fy), label, 22, DIM2)
         fy += 34
         f.text((bx + 40, fy), str(val), 24, col)
@@ -409,13 +456,139 @@ def scene_resilience(img, p, S):
     ])
 
 
-def scene_money(img, p, S):
-    snap = S["snapshot"]
+def ease(t):
+    t = max(0.0, min(1.0, t))
+    return t * t * (3.0 - 2.0 * t)
+
+
+_PLATE: dict[str, Image.Image] = {}
+
+
+def money_evidence_plate(snap):
+    """The dense evidence block laid out at ``ZOOM_MAX`` inside ZOOM_BOX.
+
+    This plate is the widest framing the camera ever reaches, so it doubles as
+    the fit check. Font sizes are fixed at ``ZOOM_MAX`` — the "1.5x" label is
+    literal — and only the whitespace between blocks is compressed if the
+    natural layout is taller than the box. If the text alone cannot fit, the
+    build fails instead of drawing a clipped column.
+    """
+    st = snap["telegraph_status"]
+    sett = st["last_settlement"]
+    s = sett["settlement"]
+    rec = snap["receipts"]
+    chain = snap["onchain_settlement"]
+
+    x0, y0, x1, y1 = ZOOM_BOX
+    bw, bh = x1 - x0, y1 - y0
+    img = Image.new("RGB", (bw, bh), BG)
+    d = ImageDraw.Draw(img)
+
+    k = ZOOM_MAX
+    sz = lambda v: int(round(v * k))
+    pad = sz(24)
+    inner = bw - 2 * pad
+    lh = lambda size: int(round(size * 1.34))
+    indent = sz(22)
+
+    label_lines = wrap("last settlement (seeded from the ledger)", font(sz(20)), inner)
+    tx_lines = wrap(sett["tx_hash"], font(sz(23)), inner)
+    rail_lines = wrap_sep(
+        f"rail {s['rail']} · mocked {s['mocked']} · {sett['amount_usd']} USDC · "
+        f"{sett['amount_uusdc']} µUSDC · {sett['time_pkt']}", font(sz(23)), inner)
+    chain_lines = wrap_sep(
+        f"on-chain receipt: status {chain['status']} · block {chain['block_number']} · "
+        f"to {chain['to']}", font(sz(21)), inner)
+    head_lines = [f"/receipts: {rec['count']} filed from HIGH/CRITICAL cards"]
+    rows = []
+    for r in rec["receipts"]:
+        row = (f"• {r['receipt_id']} · {r['city']} · {r['risk_level']} {r['score']} · "
+               f"{r['status']} · {r['drivers'][0]}")
+        rows.append((wrap_sep(row, font(sz(23)), inner - indent), sz(23),
+                     wrap(r["content_hash"], font(sz(18)), inner - indent), sz(18)))
+
+    # Natural block: padding + inter-line gaps at full size. These gaps are the
+    # only thing scaled down, so every glyph stays exactly 1.5x the console.
+    panel_pad = sz(16)
+    panel_tail = sz(30)
+    gaps = (sz(12) + sz(12) + sz(10) + sz(14) + sz(6) + sz(6) + sz(14))
+    text_h = (len(label_lines) * lh(sz(20)) + len(tx_lines) * lh(sz(23))
+              + len(rail_lines) * lh(sz(23)) + len(chain_lines) * lh(sz(21))
+              + len(head_lines) * lh(sz(24))
+              + sum(len(a) * lh(s1) + len(b) * lh(s2) for a, s1, b, s2 in rows))
+    fixed_h = sz(14) + panel_pad + sz(18) + panel_tail
+    budget = bh - text_h - fixed_h
+    if budget < 0:
+        raise SystemExit(
+            f"evidence text alone is {text_h}px, box {bh}px — cannot fit at "
+            f"{ZOOM_MAX}x without shrinking type; refusing to crop")
+    gap_scale = min(1.0, budget / gaps) if gaps else 1.0
+    g = lambda v: int(round(v * gap_scale))
+
+    panel_h = (panel_pad + len(label_lines) * lh(sz(20)) + g(12)
+               + len(tx_lines) * lh(sz(23)) + g(12)
+               + len(rail_lines) * lh(sz(23)) + g(10)
+               + len(chain_lines) * lh(sz(21)) + sz(18))
+
+    panel_top = sz(14)
+    d.rounded_rectangle([(1, panel_top), (bw - 2, panel_top + panel_h)], radius=sz(14),
+                        outline=GREEN, fill=(10, 20, 18), width=2)
+    y = panel_top + panel_pad
+
+    def block(lines, size, colour, ind=0, gap=0):
+        nonlocal y
+        fnt = font(size)
+        for ln in lines:
+            d.text((pad + ind, y), ln, font=fnt, fill=colour)
+            y += lh(size)
+        y += gap
+
+    block(label_lines, sz(20), GREEN, 0, g(12))
+    block(tx_lines, sz(23), TEXT, 0, g(12))
+    block(rail_lines, sz(23), TEXT, 0, g(10))
+    block(chain_lines, sz(21), DIM)
+
+    y = panel_top + panel_h + sz(18)
+    block(head_lines, sz(24), CYAN, 0, g(14))
+    for i, (row_lines, row_size, hash_lines, hash_size) in enumerate(rows):
+        block(row_lines, row_size, TEXT, indent, g(6))
+        block(hash_lines, hash_size, DIM2, indent, g(6) if i == 0 else g(14))
+
+    if y > bh:
+        raise SystemExit(
+            f"evidence plate bottom {y} exceeds box {bh} — refusing to crop")
+    return img
+
+
+def money_detail_frame(img, snap, elapsed):
+    """Ease from the whole fitted panel to the 1:1 (1.5x) layout, then hold.
+
+    A fitting plate is only ever scaled down and back up to 1:1, so no column,
+    edge or glyph can leave the frame at any instant of the push-in.
+    """
+    plate = _PLATE.get("img")
+    if plate is None:
+        plate = _PLATE["img"] = money_evidence_plate(snap)
+    x0, y0, x1, y1 = ZOOM_BOX
+    start = 1.0 / ZOOM_MAX
+    f = start + (1.0 - start) * ease(elapsed / ZOOM_RAMP_S)
+    if f >= 0.999:
+        img.paste(plate, (x0, y0))
+        return
+    w, h = int(round(plate.width * f)), int(round(plate.height * f))
+    img.paste(plate.resize((w, h), Image.LANCZOS),
+              (x0 + ((x1 - x0) - w) // 2, y0 + ((y1 - y0) - h) // 2))
+
+
+def money_base_body(img, p, snap):
+    """The wide money layout, exactly as it reads before the push-in."""
     st = snap["telegraph_status"]
     stats = snap["telegraph_stats"]
     rec = snap["receipts"]
     chain = snap["onchain_settlement"]
     sett = st["last_settlement"]
+    s = sett["settlement"]
+
     f = Frame(img, p)
     y = BODY_TOP
     y += f.text((MARGIN_X, y), "THE MONEY STORY", 40, CYAN, True) + 18
@@ -428,7 +601,6 @@ def scene_money(img, p, S):
     iy += f.text((MARGIN_X + 30, iy), "last settlement (seeded from the ledger)",
                  23, GREEN) + 18
     iy += f.text((MARGIN_X + 30, iy), sett["tx_hash"], 23, TEXT) + 22
-    s = sett["settlement"]
     iy += f.text((MARGIN_X + 30, iy),
                  f"rail {s['rail']} · mocked {s['mocked']} · {sett['amount_usd']} USDC · "
                  f"{sett['amount_uusdc']} µUSDC · {sett['time_pkt']}", 23, TEXT) + 20
@@ -448,12 +620,38 @@ def scene_money(img, p, S):
                     f"• {r['receipt_id']} · {r['city']} · {r['risk_level']} {r['score']} · "
                     f"{r['status']} · {r['drivers'][0]}", 23, TEXT) + 8
         y += f.text((MARGIN_X + 44, y), r["content_hash"], 18, DIM2) + 12
-    return Captions([
+
+
+def scene_money(img, p, S):
+    snap = S["snapshot"]
+    st = snap["telegraph_status"]
+    chain = snap["onchain_settlement"]
+    sett = st["last_settlement"]
+    s = sett["settlement"]
+
+    zoom_start = 1.0 - ZOOM_TOTAL_S / S["dur"]
+    subs = [
         (0.0, "The money is first-class data, not a claim."),
         (0.34, f"Mode {st['mode']} on {st['network_label']}: a real transaction, mocked {s['mocked']}."),
         (0.62, f"Read back from the chain: status {chain['status']}, block {chain['block_number']}, to the USDC contract."),
         (0.82, "Every paid assessment is notarized, and every HIGH card that finalizes files a receipt."),
-    ])
+        (zoom_start, "Read it yourself — full tx hash and both receipts, fitted to the frame, never cropped."),
+    ]
+    # The counting pass measures the base layout's draw count, so the reveal
+    # pacing still matches what a viewer sees before the push-in.
+    if Frame._counting or p < zoom_start:
+        money_base_body(img, p, snap)
+        return Captions(subs)
+
+    # Cut to the detail view, then push: the plate starts at its whole-panel
+    # fit (every line whole and inside the frame) and eases to 1:1, which is
+    # the 1.5x layout. Blending the base over the plate would double-expose two
+    # different layouts, so this is a cut followed by the move itself.
+    money_detail_frame(img, snap, (p - zoom_start) * S["dur"])
+    ImageDraw.Draw(img).text((MARGIN_X, 126),
+                             "evidence detail — whole panel fitted, then 1.5x",
+                             font=font(24), fill=CYAN)
+    return Captions(subs)
 
 
 def scene_close(img, p, S):
@@ -492,23 +690,47 @@ SCENES = [
 def measure(snap):
     """One counting pass per scene so reveal pacing matches draw count exactly."""
     Frame._counting = True
-    for i, (_label, _dur, fn) in enumerate(SCENES):
+    for i, (_label, dur, fn) in enumerate(SCENES):
         _CURRENT["i"] = i
         Frame._count = 0
-        fn(Image.new("RGB", (W, H), BG), 1.0, {"snapshot": snap})
+        fn(Image.new("RGB", (W, H), BG), 1.0, {"snapshot": snap, "dur": dur})
         _SCENE_N[i] = Frame._count
     Frame._counting = False
     return _SCENE_N
 
 
 def render_frame(snap, scene_idx, p, overall_p):
-    label, _dur, fn = SCENES[scene_idx]
+    label, dur, fn = SCENES[scene_idx]
     _CURRENT["i"] = scene_idx
     img = Image.new("RGB", (W, H), BG)
-    captions = fn(img, p, {"snapshot": snap})
+    captions = fn(img, p, {"snapshot": snap, "dur": dur})
     chrome(img, snap, label, overall_p)
     captions.draw(img, p)
     return img
+
+
+# Submission-form stills: each point lands where its scene's claim is fully
+# made, and scene 5 lands inside the 1.5x evidence hold.
+STILLS = [
+    ("01-title", 0, 0.55),
+    ("02-console-grid", 1, 0.55),
+    ("03-la-card", 1, 0.97),
+    ("04-evidence-gate", 2, 0.97),
+    ("05-weather-resilience", 3, 0.97),
+    ("06-money-story", 4, 0.97),
+]
+
+
+def build_stills(snap, out_dir):
+    """Six full-resolution PNGs through the same render path the video uses."""
+    measure(snap)
+    out = Path(out_dir)
+    out.mkdir(parents=True, exist_ok=True)
+    for name, si, p in STILLS:
+        path = out / f"{name}.png"
+        render_frame(snap, si, p, 0.5).save(path, "PNG")
+        print(f"wrote {path} ({path.stat().st_size} bytes)")
+    return out
 
 
 def build_video(snap):
@@ -560,12 +782,16 @@ def build_montage(snap, out_path):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--montage", help="write a 6-frame contact sheet instead of the video")
+    ap.add_argument("--stills", metavar="DIR",
+                    help="write the 6 submission PNGs at 1920x1080 instead of the video")
     args = ap.parse_args()
     if not SNAPSHOT.exists():
         raise SystemExit(f"missing {SNAPSHOT} — run demo/capture_video_data.py first")
     snap = json.loads(SNAPSHOT.read_text())
     if args.montage:
         build_montage(snap, args.montage)
+    elif args.stills:
+        build_stills(snap, args.stills)
     else:
         build_video(snap)
     return 0
