@@ -2025,3 +2025,78 @@ a key `/risk` never emits (weather actually succeeded 19/19).
   committed provenance snapshot is byte-identical to the video-build state.
 - `history/receipts.jsonl` was already dirty at session start (7 local rows vs 1 at HEAD)
   and is **left unstaged**, as previous beats did.
+
+## 2026-11-26 — Soldier W-7
+
+**Role:** copy-only fixer for the Auditor-3 final gate. Touched only
+`demo/SUBMISSION-FORM-DRAFT.md`, `demo/HACKATHON-SUBMISSION.md`,
+`state/hackathon-state.md` and this checkpoint. No code, video, tests or spend; no
+`git add -A`; no secrets printed.
+
+### Verdict
+**R1 + R11 fixed; R2–R6 applied. The two blocking wrong chain numbers are gone.** Every
+labelled value was copied from a live endpoint at edit time, not memory.
+
+### Rule adopted (kills this defect class)
+Every tx hash, block and amount in a submission doc is pasted verbatim from a live response,
+with `<!-- copied from … <timestamp> -->` directly above it; the explorer link is derived from
+the pasted hash, never retyped.
+
+### Verbatim live values used (source of truth for this checkpoint)
+`GET /telegraph/status` at **2026-11-26T12:26:38Z** —
+`last_settlement.tx_hash` =
+`0xac02bcbbe78e85760f3ae45400d457f750c9f0fd61c0fc9d06189fe84aa9c4cf`,
+`amount_usd 0.01`, `amount_uusdc "10000"`, `chain_id 84532`,
+`last_settlement_source "ledger"`, `settlement.rail "x402 (live)"`, `mocked false`.
+`/telegraph/status` carries no block field, so blocks were read from Base Sepolia
+`eth_getTransactionReceipt` (read-only) at the same timestamp:
+
+| tx | status | block | hex |
+|---|---|---|---|
+| `0xac02…c4cf` | 0x1 | **59,597,289** | `0x38d61e9` |
+| `0x979515ea…7067` | 0x1 | **61,335,917** | `0x3a7e96d` |
+| `0xf2276f58…97d4` | 0x1 | **48,407,418** | `0x2e2a37a` |
+
+Each tx has a USDC `Transfer` of `0x2710` = **10,000** units from `0x7b3654a6…f249` to
+`0x036cbd53…dcf7e`.
+
+### Fixes
+- **R1 (blocking) — form draft tx hash + block.** Both hand-typed occurrences replaced with
+  the verbatim hash above; the basescan link re-derived from it; `block 61335917-era` →
+  `block 59597289`. All 66-char truncation variants (`…c4f` / `…c4cf`) removed — the draft now
+  carries the full 64-char hash only.
+- **R11 — third tx block.** `48,374,650` → **48,407,418** in
+  `demo/HACKATHON-SUBMISSION.md:51` and `state/hackathon-state.md:29`. `docs/AUDIT-2026-11-22.md:49`
+  left as a dated record, per the audit.
+- **R2** — "Every finalized card" → "Every HIGH/CRITICAL card that finalizes" (matches
+  `publish.py:57`; 34 cards today → 1 receipt).
+- **R3** — dropped "every card carries a ≤7 days of observable lead time"; now states the
+  7-day *evidence window* and that no per-site spread/lead-time model exists in this build.
+- **R4** — MET Norway reworded from "kept serving 19/19" to "ships a fallback … demonstrated
+  in the video as a labelled replay of Render's verbatim 429".
+- **R5** — cold-start line added beside the Console URL (`~50 s` wake; `~150 s` first render;
+  `5 min` cache).
+- **R6** — submission doc now states the video's receipt count is a build-time snapshot rebuilt
+  at runtime.
+- Stale provenance pointer in the draft repointed from `AUDIT-2026-11-25-global-credibility.md`
+  to `AUDIT-2026-11-26-final-gate.md`; "receipts ledger seeded" → "settlement proof is seeded"
+  (term slip flagged in audit §1.6).
+
+### Verification (re-runnable)
+- Old strings `61335917-era`, `c9f10fd61c0f`, `48,374,650`, `Every finalized card`,
+  `observable lead time`, `kept serving 19/19` → **zero occurrences** in the three docs.
+- Every hash in the draft is a set-equality match to live `last_settlement.tx_hash`; the one
+  basescan URL contains that full hash.
+- Blocks above re-confirmed by receipt at the timestamp in the table.
+
+### Still open (not mine / not copy)
+R7 `LICENSE`, R8 README links + `localhost:8000` line, R9 ledger durability, R10 console
+`weather 0`. All non-blocking; R7/R8 are cheap but outside this work order's file ownership.
+
+### Commits
+- `9240d73` — `fix(docs): copy on-chain numbers from live, not memory (R1, R11, R2-R6)`
+  (`demo/SUBMISSION-FORM-DRAFT.md`, `demo/HACKATHON-SUBMISSION.md`,
+  `state/hackathon-state.md`)
+- this checkpoint — `docs(spine): checkpoint Soldier W-7 final-gate fixes`
+
+**Gate state after this checkpoint: R1 + R11 cleared. Submitting is the operator's step.**
