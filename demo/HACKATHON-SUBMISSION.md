@@ -24,6 +24,8 @@ env -u PYTHONPATH .venv/bin/python -m uvicorn app:app --host 127.0.0.1 --port 80
 
 **Video (3:52):** `demo/outbreak-sentinel-demo.mp4` — built from the live API's real responses at build time; captions and per-scene captured fields in `demo/VIDEO-CAPTIONS.md`. Rebuild: `./demo/capture_video_data.sh` → `capture_video_data.py` → `render_video.py`.
 
+**Form screenshots (1920×1080):** `demo/screenshots/` — `01-title`, `02-console-grid`, `03-la-card`, `04-evidence-gate`, `05-weather-resilience`, `06-money-story`. Rendered by `render_video.py --stills demo/screenshots` through the same code path as the video. Scene 5 ends on a 4 s hold at a literal 1.5× type scale so a reviewer can read the full tx hash and both receipt rows.
+
 ## Missions
 
 - **06 — Resources and Agriculture.** The wildfire vertical answers "days-to-impact per site" from the agent's own signal stack: city-scoped wildfire reports over 7 days plus a dry/windy outlook, each card carrying its own evidence count, score and cited sources. The agent buys the matching intelligence through Telegraph and the answer becomes a cited driver on the card.
