@@ -1938,3 +1938,79 @@ not ffmpeg seeking):
   edit.
 - Screenshots are rendered, not grabbed from the mp4, so they carry no chroma subsampling —
   they are the sharper artefact for the form.
+
+---
+
+## 2026-11-26 — Auditor-3 (final pre-submission gate)
+
+**Role:** judge, not builder. Wrote only `docs/AUDIT-2026-11-26-final-gate.md` + this
+checkpoint. No product code, no spend, no `git add -A`, no secrets printed. Full evidence in
+the audit file; this is the state that matters cold.
+
+### Verdict
+**NO-GO — fix R1 first.** The product is live and real; the blocker is one corrupted
+copy-paste in `demo/SUBMISSION-FORM-DRAFT.md`. Fix R1 and it ships as-is.
+
+### R1 (blocking) — the form draft's tx hash does not exist on-chain
+- Draft line 42 (and the link on 44) carry
+  `0xac02bcbbe78e85760f3ae45400d457f750c9f10**f**d61c0fc9d06189fe84aa9c4f` — an extra `1`
+  inserted at index 39 and the trailing `c` dropped. Both strings are 66 chars, so a length
+  check passes it.
+- Base Sepolia RPC: that hash → `result: null` for both `eth_getTransactionByHash` and
+  `eth_getTransactionReceipt`. The real tx `0xac02bcbb…c4cf` → `status 0x1`,
+  **block 59,597,289**, `Transfer 10000` from `0x7b3654a6…f249` to USDC.
+- The draft also labels it `block 61335917-era`, which is a **different** tx
+  (`0x979515ea…7067`). `demo/HACKATHON-SUBMISSION.md:50` and the video both say 59,597,289
+  correctly — only the form draft is wrong.
+- **Fix:** paste `0xac02bcbbe78e85760f3ae45400d457f750c9f0fd61c0fc9d06189fe84aa9c4cf` +
+  `block 59597289` from live `/telegraph/status`.
+
+### Other overclaims found in the form draft (copy edit, same pass)
+- R2 "Every finalized card gets a receipt" — false; `publish.py:57` files only
+  HIGH/CRITICAL. Live: 34 cards → 1 receipt.
+- R3 "every card carries a ≤7 days of observable lead time" — that field does not exist
+  anywhere in `/risk`, the console, or the code. The engine has a 7-day *evidence lookback*,
+  not a forward lead time.
+- R4 MET Norway "kept serving 19/19" — the fallback ships, but the live fallback render was
+  never observed (Open-Meteo recovered); the video correctly calls it a replay. Today
+  `/debug/weather` = 19/19 `open-meteo`.
+- R5 no cold-start line in the draft (the ~50 s wake is only in README/submission doc).
+
+### Measured, not assumed
+- **Genuine cold start** after a quiet 17-minute idle (12:06:10Z): console HTML **25.64 s**
+  (TTFB 25.23 s), `/health` 5.58 s, first `/risk` **10.41 s** returning **34 cards**,
+  `cached: false`. Documented worst case (~50 s + ~150 s) is conservative. Two earlier probes
+  read warm because audit traffic kept the dyno awake.
+- All 10 live URLs **200** (`/telegraph/dashboard`, `/health`, `/receipts`,
+  `/telegraph/status`, `/telegraph/ledger`, `/telegraph/stats`, `/scoreboard`,
+  `/telegraph/assess`, `/risk`, repo). `/risk` = 34 cards = 14 bio + 14 supply-chain +
+  6 wildfire, 19 cities, `engine: deterministic+narrator`.
+- Video `ffprobe` **232 s**, 1920×1080, 6960 frames. 8 sampled frames all non-blank.
+  Scene-5 hold (210 s) legible: full tx, `mocked False`, `block 59597289`, both receipt rows.
+- `pytest -q` → **125 passed**. `tests/test_disease_evidence.py` = 193 lines (draft correct).
+- Hygiene: `.env` never committed; no keys in tracked files; 6× 1920×1080 screenshots
+  present; video tracked. **No LICENSE file** though README claims MIT (R7).
+
+### Video vs live today (re-captured read-only)
+Headline stable: LA wildfire HIGH 65, 5 sources, 34 cards, 19 cities, tx/block all match.
+Stale detail: the video says **"2 filed"** (incl. Cape Town HIGH 55,
+`rcpt-c8cd0f19221c`) — live now returns **1** receipt and that id is **404**. Today's levels
+are `LOW 31 · MODERATE 2 · HIGH 1` vs the video's `29 · 3 · 2`. The video is captioned
+"captured at build time", so this is a snapshot flag (R6), not a fabrication.
+
+### Receipt-ledger durability (R9, HIGH fragility)
+`history/receipts.jsonl` is `.dockerignore`d and there is no volume in `render.yaml`. The
+committed ledger's one id (`rcpt-9575593f78c6`) **404s** live, while the live row
+(`rcpt-336283ecc0c4`) is not committed. Counts therefore depend on whether the dyno has
+re-rendered since boot.
+
+### Console nit (R10)
+Metric strip prints `weather 0` because `dashboard/index.html:1387` reads `signals.weather`,
+a key `/risk` never emits (weather actually succeeded 19/19).
+
+### Housekeeping done by this audit
+- Running `demo/capture_video_data.sh` (read-only GETs) overwrote 5 tracked
+  `state/video-capture/*.json` files; **restored to HEAD** (`git checkout --`), so the
+  committed provenance snapshot is byte-identical to the video-build state.
+- `history/receipts.jsonl` was already dirty at session start (7 local rows vs 1 at HEAD)
+  and is **left unstaged**, as previous beats did.
