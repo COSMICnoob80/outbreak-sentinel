@@ -2100,3 +2100,81 @@ R7 `LICENSE`, R8 README links + `localhost:8000` line, R9 ledger durability, R10
 - this checkpoint — `docs(spine): checkpoint Soldier W-7 final-gate fixes`
 
 **Gate state after this checkpoint: R1 + R11 cleared. Submitting is the operator's step.**
+
+---
+
+## 2026-11-26 — Soldier W-8
+
+**Role:** paid-path money-safety fixer. Owned `app.py`, `outbreak_sentinel.py`,
+`publish.py`, `tests/`. Touched only `app.py`, new `tests/test_paid_path.py` and this
+checkpoint. No `dashboard/`, no `telegraph/*` internals, no `Dockerfile`, no `.env`;
+no `git add -A`; no secrets printed; no spend.
+
+### Root cause (parent-verified)
+`POST /telegraph/risk` bought **first** and built the card afterwards. Kabul is not in
+`CONFIG["cities"]` and polio is not in `CONFIG["diseases"]`, so `collect_signals` gathered
+nothing city-scoped for it and `_build_deterministic_cards` returned `[]` — the purchase
+already existed, `risk_card` stayed `None`, and the response was a settlement strip with no
+card. The ledger row is a log of the request; the in-memory `last_proof` died with the
+free-tier restart, so the operator's tx was only recoverable from basescan.
+
+### Fix 1 — adopt on demand BEFORE spending
+Order is now: `resolve/adopt city` → `signals` → `card` → **(400 here if no card)** →
+`buy_intelligence` → attach paid driver → settlement view → ledger row.
+- New `_adopt_city` / `_adopt_signals`: Open-Meteo keyless **geocoding** for coordinates,
+  then **one** city-scoped news query (`"<disease> OR outbreak"`, 7-day window, same
+  `fetch_news` + `gather_city_news` gate) and **one** `fetch_weather` through the existing
+  provider chain (open-meteo → MET Norway → labelled stale). Whole adoption is bounded by
+  `asyncio.wait_for(..., 30)`; news caches under the existing `(city, disease)` key and
+  weather under `_ADOPTED_WEATHER_CACHE[city]` (30 min) plus the existing per-city
+  `_WEATHER_ATTEMPTS` / `_WEATHER_LAST_GOOD`.
+- `_build_deterministic_cards(..., extra_cities=[city])` appends the adopted city for that
+  request only. **`CONFIG` is never mutated**, so the standing grid does not grow.
+- Ad-hoc disease needs no vocabulary entry: `evidence_terms_for` already falls back to the
+  disease's own name, so a polio card still requires a headline that literally names polio.
+  **No gate weakening** — proved in the test with `Kabul measles …` and `Kabul cricket …`
+  headlines dropped from a polio card.
+- Missing card = `HTTPException(400)` with a message that says nothing was purchased, raised
+  **before** the client is called. `city=""`/whitespace → 400; unresolvable name → 400.
+- `city` omitted still means "assess the monitored grid" (dashboard/assess send `null`), so
+  the shipped frontends are unaffected. `city_adopted` is added to the response.
+
+### Fix 2 — persist runtime settlements
+Every assessment now appends through `_record_settlement` → `telegraph.settlements.record`,
+same schema as the committed rows, one row per request (a log: two identical settlements are
+two rows; receipts dedupe separately). Append failure is `log.warning`-ed and returns `None`
+— the endpoint never 500s on a disk hiccup. The row is written immediately after the
+purchase (possible now because the card is already built), closing the long
+purchase→write window that a killed free-tier request could fall into.
+**Honest durability caveat:** `state/settlements.jsonl` is git-tracked and ships in the
+image, and `/telegraph/status` seeds from it (`_seeded_settlement`) while
+`/telegraph/stats` aggregates it. That survives a process restart inside the container, but
+a Render free-tier container reset restores the image copy, so rows written since the last
+deploy can still be lost. True durability needs a mounted Render disk or an external store;
+`telegraph/settlements.py` was out of scope.
+
+### Tests (`tests/test_paid_path.py`, 6 new; suite 125 → 131)
+1. `test_card_is_built_before_the_purchase` — call order `["build","buy"]`; purchaser raises
+   and the card is still in the response with `settlement_error`.
+2. `test_no_card_returns_400_and_never_purchases` (`""`, `"   "`, `"zzzz-not-a-real-city"`)
+   — 400, purchaser call count stays 0.
+3. `test_each_settled_request_appends_exactly_one_row` — 1 row, then 2 rows for the same
+   request (no dedupe at ledger level).
+4. `test_adopts_city_and_disease_for_the_paid_path_without_touching_the_grid` — Kabul/polio
+   card, only the polio headline as evidence, `CONFIG["cities"]` unchanged.
+
+### Verification
+- `env -u PYTHONPATH .venv/bin/python -m pytest -q` → **131 passed**.
+- Local 8006 run with a **faked purchaser** (mocked proof, temp ledgers, `SENTINEL_NARRATOR=0`):
+  `POST /telegraph/risk {"city":"Kabul","disease":"polio"}` → `city_adopted true`,
+  `risk_card.city "Kabul"`, `disease "Polio"`, `LOW`, `score 0`, `evidence_count 0`,
+  driver `telegraph :: Paid Telegraph intelligence — miner txlens (0.01 USDC, x402): LOCAL RUN…`
+  plus `model :: no city-specific outbreak signal`; ledger row `city "Kabul"`.
+  `GET /debug/weather` → `adopted_cities: 1`, row `{city: Kabul, ok: true, provider:
+  open-meteo, forecast_days: 7, adopted: true}`.
+
+### Commits
+- `fix(paid): build the card before spending; adopt the city on demand`
+- `docs(spine): checkpoint Soldier W-8`
+
+**Gate state after this checkpoint: a settlement cannot come back without a card.**
