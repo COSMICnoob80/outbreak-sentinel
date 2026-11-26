@@ -26,10 +26,11 @@ ffmpeg — no PNGs on disk.
     env -u PYTHONPATH .venv/bin/python demo/render_video.py --montage /tmp/m.png
     env -u PYTHONPATH .venv/bin/python demo/render_video.py --stills demo/screenshots
 
-The camera never leaves the frame: the only move is scene 5's ending detail
-hold, which fits the whole evidence panel first and then eases up to a 1.5x
-layout that is itself laid out inside the frame — so nothing is ever cropped,
-zoomed past, or panned past the edge.
+The camera never leaves the frame: two scenes end on a detail hold — scene 2 on
+the LA card's cited-stories block, scene 5 on the whole evidence panel. Each
+block is fitted first and then eases up to a layout that is itself laid out
+inside the frame — so nothing is ever cropped, zoomed past, or panned past the
+edge.
 """
 
 from __future__ import annotations
@@ -112,6 +113,15 @@ ZOOM_RAMP_S = 0.5
 ZOOM_HOLD_S = 4.0
 ZOOM_TOTAL_S = ZOOM_RAMP_S + ZOOM_HOLD_S
 ZOOM_BOX = (MARGIN_X, 162, W - MARGIN_X, BODY_BOT)
+
+# Scene 2 ends the same way, but on the LA card's cited-stories list: every
+# cited report as one numbered row, so the card's "5 sources" and the news
+# driver's "5 reports" are seen as one list rather than read as a claim.
+SOURCES_ZOOM = 1.6
+SOURCES_RAMP_S = 0.6
+SOURCES_HOLD_S = 5.0
+SOURCES_TOTAL_S = SOURCES_RAMP_S + SOURCES_HOLD_S
+SOURCES_BOX = (MARGIN_X, 162, W - MARGIN_X, BODY_BOT)
 
 
 def mix(a, b, f):
@@ -607,8 +617,8 @@ def scene_cold_open(img, p, S):
     ])
 
 
-def scene_console(img, p, S):
-    snap = S["snapshot"]
+def console_base_body(img, p, snap):
+    """The console grid, exactly as it reads before the cited-sources hold."""
     grid = snap["grid"]
     hero = snap["hero_la_wildfire"]
     f = Frame(img, p)
@@ -723,15 +733,38 @@ def scene_console(img, p, S):
     f.text((rx + rw - 24, iy), grid["timestamp"], 15, INK, telemetry=True,
            anchor="ra")
 
-    return Captions([
+
+def scene_console(img, p, S):
+    snap = S["snapshot"]
+    grid = snap["grid"]
+    hero = snap["hero_la_wildfire"]
+
+    zoom_start = 1.0 - SOURCES_TOTAL_S / S["dur"]
+    subs = [
         (0.0, f"One render of /risk returns the whole grid: {grid['card_count']} "
               "cards, every one computed in code."),
         (0.40, f"Los Angeles — wildfire {hero['risk_level']} {hero['risk_score']}: "
-               "five city-specific reports in seven days, plus a high-wind "
-               "driver."),
-        (0.74, "The five cited stories are the five links — driver count and "
-               "rendered sources are one number."),
-    ])
+               f"{hero['evidence_count']} city-specific reports in seven days, "
+               "plus a high-wind driver."),
+        (0.68, f"The card counts {hero['source_count']} sources; the news driver "
+               f"counts {hero['evidence_count']} reports. Same number."),
+        (zoom_start, "Each of those stories, one row per cited report — so the "
+                     "count on the card and the rendered sources are visibly "
+                     "one list."),
+    ]
+    # Counting pass measures the base layout, so reveal pacing is unchanged.
+    if Frame._counting or p < zoom_start:
+        console_base_body(img, p, snap)
+        return Captions(subs)
+
+    # Cut to the cited-stories detail, then push: the plate starts at its
+    # whole-block fit and eases to 1:1, which is the 1.6x layout — the widest
+    # framing IS the layout, so no row can leave the frame.
+    sources_detail_frame(img, snap, (p - zoom_start) * S["dur"])
+    ImageDraw.Draw(img).text(
+        (MARGIN_X, 124), "cited sources — every cited report, one row each",
+        font=mono(19), fill=ACCENT)
+    return Captions(subs)
 
 
 def scene_integrity(img, p, S):
@@ -934,6 +967,100 @@ def ease(t):
 
 
 _PLATE: dict[str, Image.Image] = {}
+
+
+def sources_plate(snap):
+    """The LA card's cited reports, laid out at ``SOURCES_ZOOM`` inside the box.
+
+    One row per cited report, so the card's ``source_count`` and the news
+    driver's report count are read as one list rather than asserted as equal.
+    Like the evidence plate this is the widest framing the camera reaches, so
+    it doubles as the fit check: gaps compress, and if the text alone cannot
+    fit the build fails instead of drawing a clipped row.
+    """
+    hero = snap["hero_la_wildfire"]
+    x0, y0, x1, y1 = SOURCES_BOX
+    bw, bh = x1 - x0, y1 - y0
+    img = Image.new("RGB", (bw, bh), BG)
+    d = ImageDraw.Draw(img)
+
+    k = SOURCES_ZOOM
+    sz = lambda v: int(round(v * k))
+    pad = sz(26)
+    inner = bw - 2 * pad
+    lh = lambda size: int(round(size * 1.34))
+    indent = sz(56)
+
+    news = next((drv["text"] for drv in hero["drivers"]
+                 if drv["kind"] == "news"), "")
+    label = (f"CARD {hero['city'].upper()} · {hero['risk_level']} "
+             f"{hero['risk_score']}/100 · WILDFIRE")
+    pairing = (f"{hero['source_count']} sources on the card · news driver: "
+               f"{news} · one list")
+    pairing_lines = wrap(pairing, ui(sz(23), 600), inner)
+    rows = []
+    for i, src in enumerate(hero["sources"], 1):
+        title_lines = wrap(src["title"], ui(sz(21)), inner - indent)
+        meta = f"{src['outlet']} · {src['published']}"
+        rows.append((title_lines, sz(21), meta, sz(17)))
+
+    gap_a, gap_b = sz(14), sz(20)
+    text_h = (lh(sz(18)) + gap_a + len(pairing_lines) * lh(sz(23)) + gap_b
+              + sum(len(t) * lh(s1) + lh(s2) + gap_a for t, s1, _m, s2 in rows))
+    budget = bh - text_h - sz(16)
+    if budget < 0:
+        raise SystemExit(
+            f"cited-sources text alone is {text_h}px, box {bh}px — cannot fit "
+            f"at {SOURCES_ZOOM}x without shrinking type; refusing to crop")
+    # Whitespace absorbs the surplus so the block fills the box instead of
+    # leaving a dead band at the bottom. ``text_h`` already counts the gaps at
+    # scale 1, so the extra is added on top of them, never substituted.
+    gap_base = gap_a * (len(rows) + 1) + gap_b
+    gap_scale = min(2.2, 1.0 + max(0, budget - 4) / max(1, gap_base))
+    # floor, never round: a gap may give back a pixel, never take one
+    g = lambda v: int(v * gap_scale)
+
+    y = sz(16)
+    d.text((pad, y), label, font=mono(sz(18)), fill=ACCENT)
+    y += lh(sz(18)) + g(gap_a)
+    for ln in pairing_lines:
+        d.text((pad, y), ln, font=ui(sz(23), 600), fill=INK)
+        y += lh(sz(23))
+    y += g(gap_b)
+
+    sev = LEVEL_COLOR.get(hero["risk_level"], SEV_LOW)
+    for i, (title_lines, t_size, meta, m_size) in enumerate(rows, 1):
+        row_h = lh(t_size) * max(1, len(title_lines)) + lh(m_size)
+        d.line([(pad, y + 4), (pad, y + row_h - 4)], fill=sev, width=sz(5))
+        d.line([(pad + sz(16), y + 2), (bw - pad, y + 2)], fill=LINE, width=1)
+        d.text((pad + sz(6), y + 2), f"{i:02d}", font=mono(sz(19)),
+               fill=INK_FAINT)
+        for ln in title_lines:
+            d.text((pad + indent, y), ln, font=ui(t_size), fill=INK)
+            y += lh(t_size)
+        d.text((pad + indent, y), meta, font=mono(m_size), fill=INK_FAINT)
+        y += lh(m_size) + g(gap_a)
+
+    if y > bh:
+        raise SystemExit(
+            f"cited-sources plate bottom {y} exceeds box {bh} — refusing to crop")
+    return img
+
+
+def sources_detail_frame(img, snap, elapsed):
+    """Ease from the whole fitted sources block to the 1:1 (1.6x) layout, hold."""
+    plate = _PLATE.get("sources")
+    if plate is None:
+        plate = _PLATE["sources"] = sources_plate(snap)
+    x0, y0, x1, y1 = SOURCES_BOX
+    start = 1.0 / SOURCES_ZOOM
+    f = start + (1.0 - start) * ease(elapsed / SOURCES_RAMP_S)
+    if f >= 0.999:
+        img.paste(plate, (x0, y0))
+        return
+    w, h = int(round(plate.width * f)), int(round(plate.height * f))
+    img.paste(plate.resize((w, h), Image.LANCZOS),
+              (x0 + ((x1 - x0) - w) // 2, y0 + ((y1 - y0) - h) // 2))
 
 
 def money_evidence_plate(snap):
@@ -1204,7 +1331,7 @@ def scene_money(img, p, S):
     # different layouts, so this is a cut followed by the move itself.
     money_detail_frame(img, snap, (p - zoom_start) * S["dur"])
     ImageDraw.Draw(img).text(
-        (MARGIN_X, 124), "evidence detail — whole panel fitted, then 1.5x",
+        (MARGIN_X, 124), "settlement detail — full ledger record",
         font=mono(19), fill=ACCENT)
     return Captions(subs)
 

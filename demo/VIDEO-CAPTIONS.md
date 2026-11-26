@@ -108,13 +108,26 @@ cards follow (Cape Town, London). The right `.rail` column shows `news signals 2
 `city-scoped 151`, `wildfire-scoped 76`, `social 113`, `cities 19`, the severity bars
 (HIGH 2 / MODERATE 3 / LOW 29), verticals, engine and grid timestamp.
 
+At **70.4 s** (90% through the scene) the camera cuts to the cited-sources detail view and
+pushes in, then holds:
+
+- **70.4–71.0 s** — the block is fitted: all five cited reports, one numbered row each, drawn
+  at 1.6× type but shown scaled to 1/1.6 so the whole list is visible and centered.
+- **71.0–76.0 s** — hold at 1:1, i.e. the literal 1.6× layout, under the header
+  `cited sources — every cited report, one row each`, with the pairing line
+  `5 sources on the card · news driver: 5 city-specific wildfire reports in 7 days · one list`.
+- Laid out inside `SOURCES_BOX = (120, 162, 1800, 916)`; the renderer raises rather than drawing
+  if the text does not fit. Whitespace, not type size, absorbs any shortfall.
+
 Captions:
 1. `One render of /risk returns the whole grid: 34 cards, every one computed in code.`
-2. `Los Angeles — wildfire HIGH 65: five city-specific reports in seven days, plus a high-wind driver.`
-3. `The five cited stories are the five links — driver count and rendered sources are one number.`
+2. `Los Angeles — wildfire HIGH 65: 5 city-specific reports in seven days, plus a high-wind driver.`
+3. `The card counts 5 sources; the news driver counts 5 reports. Same number.`
+4. `Each of those stories, one row per cited report — so the count on the card and the rendered sources are visibly one list.`
 
-> Caption 2 and the `==` line make the old "9 reports vs 5 links" defect visibly fixed:
-> `evidence_count`, the driver text and `sources` are all 5 in this capture.
+> Captions 2–4 and the `==` line make the old "9 reports vs 5 links" defect visibly fixed:
+> `evidence_count`, the driver text and `sources` are all 5 in this capture — and the closing
+> hold renders those five as five rows instead of asserting the equality.
 
 ### Scene 3 — The evidence gate (1:16–2:00)
 
@@ -170,7 +183,8 @@ receipt rows, each as a severity-edged card with `score/100`, level chip, driver
 `content_hash`; and a ledger strip (`assessments 2`, `settled 1`, `total 0.01 USDC`,
 `integrity 100%`, `verdicts HIGH 2`, `ledger sha256, append-only`).
 
-At **207.5 s** (92% through the scene) the camera cuts to the evidence detail view and pushes
+At **207.5 s** (92% through the scene) the camera cuts to the settlement detail view — header
+`settlement detail — full ledger record` — and pushes
 in, then holds:
 
 - **207.5–208.0 s** — the whole panel is fitted: the settlement panel, both receipt rows and
