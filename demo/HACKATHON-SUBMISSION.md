@@ -22,7 +22,7 @@ Run it locally if you prefer:
 env -u PYTHONPATH .venv/bin/python -m uvicorn app:app --host 127.0.0.1 --port 8001
 ```
 
-**Video (3:52):** `demo/outbreak-sentinel-demo.mp4` — built from the live API's real responses at build time; captions and per-scene captured fields in `demo/VIDEO-CAPTIONS.md`. Rebuild: `./demo/capture_video_data.sh` → `capture_video_data.py` → `render_video.py`.
+**Video (3:52):** `demo/outbreak-sentinel-demo.mp4` — built from the live API's real responses at build time; captions and per-scene captured fields in `demo/VIDEO-CAPTIONS.md`. Rebuild: `./demo/capture_video_data.sh` → `capture_video_data.py` → `render_video.py`. The receipt count shown in the video is a build-time snapshot; live `/receipts` may show fewer after a redeploy because the ledger is rebuilt from finalized cards at runtime.
 
 **Form screenshots (1920×1080):** `demo/screenshots/` — `01-title`, `02-console-grid`, `03-la-card`, `04-evidence-gate`, `05-weather-resilience`, `06-money-story`. Rendered by `render_video.py --stills demo/screenshots` through the same code path as the video. Scene 5 ends on a 4 s hold at a literal 1.5× type scale so a reviewer can read the full tx hash and both receipt rows.
 
@@ -48,7 +48,7 @@ Paid asks settle on **Base Sepolia (chain 84532)** at **0.01 USDC** each. Recent
 
 - `0x979515ea…7067` — block **61,335,917**, USDC `Transfer` 10,000 units (0.01 USDC) from burner `0x7b36…f249`
 - `0xac02bcbb…c4cf` — block **59,597,289**, 10,000 units, same burner
-- `0xf2276f58…97d4` — block **48,374,650**, 10,000 units, same burner
+- `0xf2276f58…97d4` — block **48,407,418**, 10,000 units, same burner
 
 Each opens at `sepolia.basescan.org/tx/<hash>` and can be checked with `eth_getTransactionByHash`. `/telegraph/status` returns the most recent settled tx on a fresh boot (seeded from `state/settlements.jsonl`), so the proof is visible without spending.
 
