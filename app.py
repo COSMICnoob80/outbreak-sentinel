@@ -1012,18 +1012,24 @@ def _attach_card_extras(cards: list, news: list, weather_map: dict, disease: str
     return cards
 
 
-def _build_deterministic_cards(news, weather, social, sent, disease, city=None):
+def _build_deterministic_cards(news, weather, social, sent, disease, city=None,
+                               extra_cities=None):
     """Build one card per monitored city from signals alone — never from a model.
 
     The requested disease is authoritative: every card carries its display form
     and no other. Sources, score, level, confidence and chart all come from the
     deterministic layer, so two identical calls cannot disagree.
+
+    ``extra_cities`` are cities adopted for one request (the paid path's
+    on-demand adoption). They are appended to the iteration only — ``CONFIG``
+    is never mutated, so a request can never grow the standing grid.
     """
     weather_map = _weather_by_city(weather)
     target = str(city).strip().lower() if city else None
     label = display_disease(disease)
     cards = []
-    for configured in CONFIG.get("cities", []):
+    grid = list(CONFIG.get("cities", [])) + list(extra_cities or [])
+    for configured in grid:
         name = str(configured.get("name") or "").strip()
         if not name or (target and name.lower() != target):
             continue
@@ -1537,12 +1543,21 @@ def debug_weather():
             list(CONFIG.get("cities") or []) + list(CONFIG.get("wildfire_cities") or [])
         )
         names = [str(c.get("name") or "") for c in configured]
+        configured_names = {n.strip().lower() for n in names}
+        # Any attempted city outside the grid is one adopted by a paid request;
+        # it is shown here (labelled) so an on-demand fetch is never invisible.
+        adopted_names = [
+            name for name in _WEATHER_ATTEMPTS
+            if str(name).strip().lower() not in configured_names
+        ]
         rows = [_WEATHER_ATTEMPTS[n] for n in names if n in _WEATHER_ATTEMPTS]
+        rows += [{**_WEATHER_ATTEMPTS[n], "adopted": True} for n in adopted_names]
         cache = weather_cache_state()
         if not rows:
             return {
                 "note": "no weather attempt yet",
                 "configured_cities": len(names),
+                "adopted_cities": 0,
                 "cache": cache,
                 "cities": [],
             }
@@ -1550,6 +1565,7 @@ def debug_weather():
         return {
             "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
             "configured_cities": len(names),
+            "adopted_cities": len(adopted_names),
             "attempted_cities": len(rows),
             "ok": len(rows) - len(failed),
             "failed": len(failed),
@@ -1724,6 +1740,131 @@ def _paid_intelligence(proof: dict) -> dict:
     return out
 
 
+# ── On-demand city adoption (paid path only) ──────────────────────────
+# A paid request must come back with a card and a purchase must never happen
+# without one. Cities outside the standing grid are therefore adopted for the
+# single request: geocode → one city-scoped news query → one weather fetch.
+# Nothing here writes to CONFIG, so the monitored grid is unchanged.
+
+ADOPT_BUDGET_S = 30
+GEOCODE_URL = "https://geocoding-api.open-meteo.com/v1/search"
+GEOCODE_TIMEOUT_S = 10
+
+_ADOPTED_CITIES: dict[str, dict] = {}
+_GEOCODE_CACHE: dict[str, dict | None] = {}
+_ADOPTED_WEATHER_CACHE: dict[str, dict] = {}
+
+
+def _configured_city(name) -> Optional[dict]:
+    """The configured grid entry for this name (case-insensitive), else None."""
+    target = str(name or "").strip().lower()
+    if not target:
+        return None
+    for city in list(CONFIG.get("cities") or []) + list(CONFIG.get("wildfire_cities") or []):
+        if str(city.get("name") or "").strip().lower() == target:
+            return city
+    return None
+
+
+async def _geocode_city(session, name: str) -> Optional[dict]:
+    """Coordinates for an arbitrary city via Open-Meteo's keyless geocoder.
+
+    Only coordinates are taken; the card keeps the caller's own city string so
+    the answer is visibly about the place that was asked for. A lookup that
+    returns nothing means the city is not a place we can assess.
+    """
+    key = str(name or "").strip().lower()
+    if key in _GEOCODE_CACHE:
+        return _GEOCODE_CACHE[key]
+    params = {"name": str(name).strip(), "count": 1, "language": "en", "format": "json"}
+    try:
+        async with session.get(
+            GEOCODE_URL, params=params,
+            timeout=aiohttp.ClientTimeout(total=GEOCODE_TIMEOUT_S),
+        ) as r:
+            if r.status != 200:
+                log.warning("geocode city=%s error=HTTP %s", name, r.status)
+                return None
+            data = await r.json()
+    except Exception as exc:
+        log.warning("geocode city=%s error=%s", name, exc)
+        return None
+    results = (data or {}).get("results") or []
+    if not results:
+        return None
+    hit = results[0] or {}
+    try:
+        coords = {"lat": float(hit["latitude"]), "lon": float(hit["longitude"])}
+    except (KeyError, TypeError, ValueError):
+        return None
+    _GEOCODE_CACHE[key] = coords  # successes only: a transient miss can retry
+    return coords
+
+
+async def _adopt_city(name: str) -> Optional[dict]:
+    """A request-scoped city entry for a name outside the standing grid."""
+    key = str(name or "").strip().lower()
+    if not key:
+        return None
+    if key in _ADOPTED_CITIES:
+        return _ADOPTED_CITIES[key]
+    async with aiohttp.ClientSession() as session:
+        coords = await _geocode_city(session, name)
+    if not coords:
+        return None
+    city = {
+        "name": str(name).strip(),
+        "lat": coords["lat"],
+        "lon": coords["lon"],
+        "region": "global",
+        "adopted": True,
+    }
+    _ADOPTED_CITIES[key] = city
+    return city
+
+
+async def _adopted_weather(session, city: dict) -> dict:
+    """One forecast through the provider chain, cached per city for 30 minutes."""
+    key = str(city.get("name") or "").strip().lower()
+    entry = _ADOPTED_WEATHER_CACHE.get(key)
+    if entry and time.monotonic() - entry["at"] <= WEATHER_CACHE_TTL_S:
+        return entry["record"]
+    record = await fetch_weather(session, city)
+    if _forecast_ok(record) and record.get("forecast"):
+        _ADOPTED_WEATHER_CACHE[key] = {"at": time.monotonic(), "record": record}
+    return record
+
+
+async def _adopt_signals(city: dict, disease: str) -> tuple[list, list]:
+    """Bounded on-demand signals: one city-scoped news query + one forecast.
+
+    Same fetcher, gate and 7-day window as the grid, so adopted evidence obeys
+    the identical city + disease-term rules. Failures degrade to a weather-less
+    card (still a card) rather than refusing to render.
+    """
+    hours = CONFIG.get("city_lookback_hours", CONFIG["lookback_hours"])
+    query = f"{str(disease or '').strip()} OR outbreak"
+    gate = asyncio.Semaphore(CITY_FETCH_CONCURRENCY)
+    async with aiohttp.ClientSession() as session:
+        news_batches, weather = await asyncio.gather(
+            gather_city_news(
+                session, [city], fetch_news, query, hours, disease, semaphore=gate,
+            ),
+            _adopted_weather(session, city),
+        )
+    news = [item for batch in news_batches for item in batch]
+    return news, [weather]
+
+
+def _record_settlement(entry: dict) -> Optional[dict]:
+    """Append one runtime settlement row; a disk hiccup is logged, never raised."""
+    try:
+        return settlements.record(entry)
+    except Exception as exc:  # the endpoint must never 500 on a storage failure
+        log.warning("settlement ledger append failed: %s: %s", type(exc).__name__, exc)
+        return None
+
+
 @app.post("/telegraph/risk")
 async def telegraph_risk(req: TelegraphRiskRequest):
     """Track 01 demo endpoint: route a PAID Telegraph request, return ranked
@@ -1740,6 +1881,85 @@ async def telegraph_risk(req: TelegraphRiskRequest):
     if req.amount_uusdc:
         context.update({"spend_tier": tier or "custom",
                         "amount_uusdc_requested": str(req.amount_uusdc)})
+
+    # ── 1. Build the card BEFORE any money moves ──────────────────────
+    # The purchase must never happen without a card rendered from it: the
+    # operator paid for a city outside the grid once and got a settlement strip
+    # with no card. So the card is resolved first and a missing card aborts the
+    # request (HTTP 400) before `buy_intelligence` is called.
+    requested_city = str(req.city).strip() if req.city is not None else None
+    if req.city is not None and not requested_city:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "city must be a non-empty place name; omit `city` to assess the "
+                "monitored grid. Nothing was purchased."
+            ),
+        )
+    risk_card = None
+    engine = None
+    adopted_city = None
+    try:
+        if requested_city and not _configured_city(requested_city):
+            # Outside the standing grid: adopt for this request only.
+            adopted_city = await asyncio.wait_for(
+                _adopt_city(requested_city), timeout=ADOPT_BUDGET_S
+            )
+            if not adopted_city:
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        f"Could not resolve '{requested_city}' as a city, so no card "
+                        "could be built and nothing was purchased. Check the spelling "
+                        "or omit `city` to assess the monitored grid."
+                    ),
+                )
+            news, weather = await asyncio.wait_for(
+                _adopt_signals(adopted_city, req.disease), timeout=ADOPT_BUDGET_S
+            )
+            sent = sentiment_score(" ".join(n.get("title", "") for n in news))
+            cards, engine = _build_deterministic_cards(
+                news, weather, [], sent, req.disease, requested_city,
+                extra_cities=[adopted_city],
+            )
+        else:
+            signals = await asyncio.wait_for(collect_signals(req.disease), timeout=90)
+            news, weather, social, sent = signals[:4]
+            cards, engine = _build_deterministic_cards(
+                news, weather, social, sent, req.disease, req.city
+            )
+        weather_map = _weather_by_city(weather)
+        cards = _attach_card_extras(cards, news, weather_map, req.disease)
+        cards, narrated = await narrate_cards(cards, req.disease)
+        if engine == "deterministic":
+            engine = "deterministic+narrator" if narrated else "deterministic"
+        if cards:
+            risk_card = dict(cards[0])
+    except HTTPException:
+        raise
+    except asyncio.TimeoutError:
+        raise HTTPException(
+            status_code=504,
+            detail="Signal collection timed out; no card was built, so nothing was purchased",
+        )
+    except Exception as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Could not build a card ({type(exc).__name__}: {exc}); "
+                "nothing was purchased."
+            ),
+        )
+    if not isinstance(risk_card, dict) or risk_card.get("error"):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "No card could be built for this request, so nothing was purchased. "
+                "Check the city and disease."
+            ),
+        )
+
+    # ── 2. Purchase — only now that a card exists ──────────────────────
     try:
         proof = await _telegraph_client.buy_intelligence(req.query, context=context)
     except Exception as exc:
@@ -1756,25 +1976,6 @@ async def telegraph_risk(req: TelegraphRiskRequest):
             "chain_id": TELEGRAPH_CONFIG["chain_id"],
             "testnet_boundary": TELEGRAPH_CONFIG["testnet_boundary"],
         }
-
-    # Same card builder as /risk: deterministic facts first, prose narrated second.
-    risk_card = None
-    engine = None
-    try:
-        signals = await asyncio.wait_for(collect_signals(req.disease), timeout=90)
-        news, weather, social, sent = signals[:4]
-        weather_map = _weather_by_city(weather)
-        cards, engine = _build_deterministic_cards(
-            news, weather, social, sent, req.disease, req.city
-        )
-        cards = _attach_card_extras(cards, news, weather_map, req.disease)
-        cards, narrated = await narrate_cards(cards, req.disease)
-        if engine == "deterministic":
-            engine = "deterministic+narrator" if narrated else "deterministic"
-        if cards:
-            risk_card = dict(cards[0])
-    except Exception as exc:  # never fail the demo endpoint on signal hiccups
-        risk_card = {"error": str(exc)}
 
     # The purchase must shape the card, not just decorate the JSON: the paid
     # answer becomes a cited driver, first in the list so truncation keeps it.
@@ -1825,42 +2026,40 @@ async def telegraph_risk(req: TelegraphRiskRequest):
     if proof.get("error"):
         settlement_error = str(proof["error"])
 
-    # One row per assessment: the public ledger and the console telemetry read
-    # the same file, so the two surfaces cannot disagree. Persistence failure is
-    # reported in settlement_error, never raised.
-    ledger_row = None
-    try:
-        card = risk_card if isinstance(risk_card, dict) else {}
-        ledger_row = settlements.record({
-            "query": req.query,
-            "city": req.city or card.get("city"),
-            "disease": req.disease,
-            "vertical": req.vertical,
-            "spend_tier": tier,
-            "tier": tier,
-            "tier_available": tier_available,
-            "amount_uusdc_requested": str(req.amount_uusdc) if req.amount_uusdc else None,
-            "amount_uusdc": settlement_view.get("amount_uusdc"),
-            "amount_usd": settlement_view.get("amount"),
-            "mode": proof.get("mode"),
-            "live": bool(proof.get("live")),
-            "mocked": settlement_view.get("mocked"),
-            "miner": settlement_view.get("miner"),
-            "miner_name": settlement_view.get("miner_name"),
-            "tx_hash": settlement_view.get("tx_hash"),
-            "risk_level": card.get("risk_level"),
-            "confidence": card.get("confidence"),
-            "drivers": (card.get("drivers") or [])[:3],
-            "sources_count": len(card.get("sources") or []),
-            "verdict": _first_sentence(card.get("summary")),
-            "engine": engine,
-            "settlement_error": settlement_error,
-        })
-    except Exception as exc:
-        settlement_error = settlement_error or f"ledger_record_failed: {type(exc).__name__}: {exc}"
+    # One row per assessment, appended at runtime so a restart/spin-down keeps
+    # the operator's tx visible in /telegraph/status seeding and /telegraph/stats.
+    # The append is a log, not a deduped store: two identical settlements are two
+    # rows (receipts dedupe separately). A disk hiccup is logged, never raised.
+    card = risk_card if isinstance(risk_card, dict) else {}
+    ledger_row = _record_settlement({
+        "query": req.query,
+        "city": requested_city or card.get("city"),
+        "disease": req.disease,
+        "vertical": req.vertical,
+        "spend_tier": tier,
+        "tier": tier,
+        "tier_available": tier_available,
+        "amount_uusdc_requested": str(req.amount_uusdc) if req.amount_uusdc else None,
+        "amount_uusdc": settlement_view.get("amount_uusdc"),
+        "amount_usd": settlement_view.get("amount"),
+        "mode": proof.get("mode"),
+        "live": bool(proof.get("live")),
+        "mocked": settlement_view.get("mocked"),
+        "miner": settlement_view.get("miner"),
+        "miner_name": settlement_view.get("miner_name"),
+        "tx_hash": settlement_view.get("tx_hash"),
+        "risk_level": card.get("risk_level"),
+        "confidence": card.get("confidence"),
+        "drivers": (card.get("drivers") or [])[:3],
+        "sources_count": len(card.get("sources") or []),
+        "verdict": _first_sentence(card.get("summary")),
+        "engine": engine,
+        "settlement_error": settlement_error,
+    })
 
     return {
         "request": {"query": req.query, "city": req.city, "disease": req.disease, "vertical": req.vertical},
+        "city_adopted": bool(adopted_city),
         "spend_tier": tier,
         "tier": tier,
         "tier_available": tier_available,
