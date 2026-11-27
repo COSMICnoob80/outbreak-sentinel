@@ -2445,3 +2445,64 @@ Also added `n_sources()` so London reads `1 source`, not `1 sources`.
 
 **Commits:** `feat(demo): V-5 — v1's motion on v2's console skin, v3 cut` (`d9ed4a5`), then this
 SPINE checkpoint.
+
+---
+
+## 2026-11-27 — Auditor-4
+
+**Scope:** judged the three demo cuts against the Telegraph rubric ("Apps & Agents"): §8 (2–5 min
+video showing real input, result, Telegraph integration), §6 weights (Technical 35, Integration
+5, Reproducibility 5, Organic 20), §5 (accurate testnet claims). JUDGE only — no product code,
+no spending, no `git add -A`.
+
+**Writes:** `docs/AUDIT-2026-11-27-video-comparison.md`,
+`docs/audit-evidence-2026-11-27/` (6 montages), this checkpoint. Nothing else.
+
+**Method (post-OOM):** motion measured **streaming** with ffmpeg CLI
+(`tblend`+`signalstats`+`metadata=print`, 320×180 gray) parsed line by line — no decoded frame
+sequences in PIL/numpy. Peak RSS per pass **139–140 MB** (limit ~1 GB). Scene cuts via
+`select='gt(scene,0.02)'`. Stills analysed one at a time, ≤640 px or small ROI crops.
+
+### Inventory
+All three cut from the same 232.000 s timeline, 1920×1080, h264/30, 6960 frames, **0 audio
+streams**, yuv420p. md5: v1 `42b8a387…` (4,926,657 B), v2 `2259ce54…` (5,115,399 B), v3
+`c18e0bb4…` (5,084,978 B). v1/v2 match the V-5 protected hashes.
+
+### Motion
+- Scene boundaries identical (20/76/120/156/212 s). v2 adds a **mid-scene cut at 70.4 s**;
+  v1/v3 do not.
+- 2 s-bin motion counts ≥0.02 / ≥0.10 / ≥0.20 and total energy: **v1 14/5/1, 164.1** ·
+  **v2 23/7/5, 311.5** · **v3 16/6/4, 203.5**. v2's surplus is entirely the 70.4 s cut.
+- All three share the **one real animation**: a cut-to-detail at 207.50 s followed by a 0.47 s
+  push-in (14 frames, diff 2.3→8.0→0), v2/v3 numerically identical, v1 same timing lower peak.
+- **Correction to the premise:** v1 does not animate *more* than v2; it animates less. v1's
+  advantage is **flow** — one uninterrupted reveal per scene — which v3 reproduces.
+
+### Readability / layout
+- Caption ink band at full res: **v2 25 px → v3 29 px (+16 %)**, matching Inter 26→30; v1 also
+  29 px at the money scene, so v3 returns to v1's caption size. **Operator's request delivered.**
+- Scene-2 body extent: v2 `159–1698` (1539 px, page-scale) vs v1 `117–1800` (1683) and v3
+  `117–1797` (1680) — v3 restores v1's magnification on v2's skin.
+- v2's scene-5 instrument strip is fixed-height with ~180 px dead surface; v3's is
+  content-sized. v2 also carries a stray lime focus outline v3 removed. No clipping in any cut;
+  full tx hash + both receipt content hashes legible in all three.
+- Honest-capture disclaimer and close CTA are **identical in all three**; `Base Sepolia
+  (testnet)` is on every frame. §5 passes for all.
+
+### Rubric verdict
+v1 / v2 / v3 scores (0–10): evidence 8/9/9 · clarity 6/8/9 · reproducibility 9/9/9 · motion
+7/6/8 · captions 9/7/9 · claims 9/9/9. **v3 is Pareto-dominant (≥ both on all six, > on five).**
+Projected on the 65 video-touched points: **v3 57.1 (87.8 %)** > v2 49.2 (75.7 %) > v1 45.9
+(70.6 %). Weighting cannot reorder first place.
+
+### Recommendation
+**Submit v3.** Backup **v2** (nearest rubric distance, same skin/integration evidence). v1 is
+the motion reference / third option, not the rubric backup. A licensed, low-mixed instrumental
+mux modestly helps Organic and is otherwise neutral; **Pixabay CC0** is lowest risk, **Scott
+Buckley CC-BY** requires a credit line, White Bat licence per track. Mux with `-c:v copy` and
+re-verify 232.000 s.
+
+**Do not self-score beyond the above; parent vision-judges the six montages in
+`docs/audit-evidence-2026-11-27/`.** `history/receipts.jsonl` stayed dirty and unstaged.
+
+**Commits:** `docs(audit): Auditor-4 three-cut video comparison` + this SPINE checkpoint.
