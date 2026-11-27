@@ -1,5 +1,13 @@
 """Render the hackathon demo video as footage of the operations console.
 
+V-5 merges the two approved ancestors: the motion pipeline of the v1 cut
+(v1-backup: progressive reveal at ``REVEAL_SPAN``, one cut-to-detail
+magnification move, its ramp and hold) renders the console-mirrored scene skin
+of v2. Where a v1 behaviour did not fit a v2 scene the scene was adapted to the
+motion, not the reverse — v2's second mid-scene cut (scene 2's cited-stories
+plate) was the drift and is gone: all five cited reports now render inline on
+the card, so scene 2 is one uninterrupted reveal like every v1 scene.
+
 Every string, number, hash and path on screen is read from
 ``state/video-capture/snapshot.json`` (produced by ``capture_video_data.py``).
 Nothing is hand-written: captions interpolate captured values, and scenes draw
@@ -46,7 +54,7 @@ from PIL import Image, ImageDraw, ImageFont
 ROOT = Path(__file__).resolve().parent.parent
 SNAPSHOT = ROOT / "state" / "video-capture" / "snapshot.json"
 OUT_DIR = ROOT / "demo"
-OUT_VIDEO = OUT_DIR / "outbreak-sentinel-demo.mp4"
+OUT_VIDEO = OUT_DIR / "outbreak-sentinel-demo-v3.mp4"
 
 W, H, FPS = 1920, 1080, 30
 
@@ -102,26 +110,24 @@ CAPTION_TOP = 956
 BODY_BOT = 916
 # Each scene finishes revealing its items by this fraction of its runtime, then
 # holds a fully-drawn frame so the later captions land on complete content.
-REVEAL_SPAN = 0.58
+# v1's pacing, restored after v2 stretched it to 0.58.
+REVEAL_SPAN = 0.55
 
-# Scene 5 ends on a detail hold of the dense evidence panels. The block is laid
-# out once at ZOOM_MAX; the push-in eases from the 1.0x layout to that fitted
-# one, so the widest framing IS the layout — the camera can never pass the frame
-# edge, and no column or glyph can be clipped.
+# The cut's single move: scene 5 ends on a detail hold of the dense evidence
+# panel. The block is laid out once at ZOOM_MAX; the push-in eases from the
+# 1.0x layout to that fitted one, so the widest framing IS the layout — the
+# camera can never pass the frame edge, and no column or glyph can be clipped.
+# Ramp and hold are v1's numbers, unchanged.
 ZOOM_MAX = 1.5
 ZOOM_RAMP_S = 0.5
 ZOOM_HOLD_S = 4.0
 ZOOM_TOTAL_S = ZOOM_RAMP_S + ZOOM_HOLD_S
 ZOOM_BOX = (MARGIN_X, 162, W - MARGIN_X, BODY_BOT)
 
-# Scene 2 ends the same way, but on the LA card's cited-stories list: every
-# cited report as one numbered row, so the card's "5 sources" and the news
-# driver's "5 reports" are seen as one list rather than read as a claim.
-SOURCES_ZOOM = 1.6
-SOURCES_RAMP_S = 0.6
-SOURCES_HOLD_S = 5.0
-SOURCES_TOTAL_S = SOURCES_RAMP_S + SOURCES_HOLD_S
-SOURCES_BOX = (MARGIN_X, 162, W - MARGIN_X, BODY_BOT)
+# Bottom caption strip: one size step above v2's 26 (readability on a projector
+# and on a phone), still inside the margins with the same 2-line clamp.
+CAPTION_SIZE = 30
+CAPTION_LEAD = 42
 
 
 def mix(a, b, f):
@@ -297,14 +303,24 @@ class Frame:
     def hline(self, x0, x1, y, color=LINE, width=1):
         self.line([(x0, y), (x1, y)], color, width)
 
+    def spark(self, box, values, color, alpha):
+        """The captured 7-day series, drawn through this frame's own surface."""
+        spark(self.d, box, values, color, alpha)
+
     def chip(self, xy, s, fg=INK_DIM, bg=None, border=LINE, size=17,
-             padx=10, pady=4, telemetry=True):
-        """A console .tag/.chip: 1px hairline, 6px radius, mono label."""
-        a = self._reveal()
+             padx=10, pady=4, telemetry=True, draw=True):
+        """A console .tag/.chip: 1px hairline, 6px radius, mono label.
+
+        ``draw=False`` measures the chip without painting it or consuming a
+        reveal slot, so callers can wrap a row of chips to a width.
+        """
         fnt = mono(size) if telemetry else ui(size)
         x, y = xy
         h = size + 2 * pady + 4
         w = int(fnt.getlength(s)) + 2 * padx
+        if not draw:
+            return w, h
+        a = self._reveal()
         if self._visible(a):
             fill = bg if bg is not None else SURFACE1
             self.d.rounded_rectangle([(x, y), (x + w, y + h)], radius=6,
@@ -339,6 +355,60 @@ class Frame:
         return w, h
 
 
+class Measure(Frame):
+    """A Frame that draws nothing and takes no reveal slot — it only records the
+    extent of what would be drawn.
+
+    Panels are sized to their content (v1's behaviour: a card is as tall as what
+    it says, never padded out to a fixed height). Sizing needs the content's
+    bottom edge before the panel can be painted behind it, so scenes lay their
+    content out once here, then once for real.
+    """
+
+    def __init__(self):
+        self.img = None
+        self.d = None
+        self.p = 1.0
+        self._shown = 0
+        self.bottom = 0
+        self.right = 0
+
+    def text(self, xy, s, size=25, color=INK, weight=450, mono_bold=False,
+             telemetry=False, anchor="la"):
+        self.bottom = max(self.bottom, xy[1] + int(size * 1.3))
+        return size
+
+    def panel(self, box, border=LINE, fill=SURFACE1, radius=16, width=2,
+              top_edge=None, left_edge=None, edge_w=6, edge_inset=2):
+        self.bottom = max(self.bottom, box[3])
+        self.right = max(self.right, box[2])
+
+    def rect(self, box, color, radius=0):
+        self.bottom = max(self.bottom, box[3])
+
+    def line(self, pts, color, width=2):
+        self.bottom = max(self.bottom, max(p[1] for p in pts))
+
+    def spark(self, box, values, color, alpha):
+        self.bottom = max(self.bottom, box[1] + box[3])
+
+    def chip(self, xy, s, fg=INK_DIM, bg=None, border=LINE, size=17,
+             padx=10, pady=4, telemetry=True, draw=True):
+        fnt = mono(size) if telemetry else ui(size)
+        x, y = xy
+        h = size + 2 * pady + 4
+        w = int(fnt.getlength(s)) + 2 * padx
+        if draw:
+            self.bottom = max(self.bottom, y + h)
+        return w, h
+
+    def sev_chip(self, xy, level, size=17, draw=True):
+        w, h = Frame.sev_chip(self, xy, level, size, draw=False)
+        if draw:
+            self.bottom = max(self.bottom, xy[1] + h)
+        return w, h
+
+
 class Captions:
     """Bottom caption bar; the visible sub changes at progress thresholds."""
 
@@ -356,11 +426,11 @@ class Captions:
                fill=LINE, width=1)
         if not text:
             return
-        fnt = ui(26, 450)
+        fnt = ui(CAPTION_SIZE, 450)
         y = CAPTION_TOP
-        for ln in wrap(text, fnt, SHELL_W - 120)[:2]:
+        for ln in wrap(text, fnt, SHELL_W - 60)[:2]:
             d.text((W // 2, y), ln, font=fnt, fill=INK_MID, anchor="ma")
-            y += 38
+            y += CAPTION_LEAD
 
 
 # ── console chrome ───────────────────────────────────────────────────────────
@@ -491,6 +561,11 @@ def hazard_of(card):
     return card.get("disease") or card["vertical"]
 
 
+def n_sources(n: int) -> str:
+    """``1 source`` / ``0 sources`` / ``5 sources`` — one plural decision."""
+    return f"{n} {'source' if n == 1 else 'sources'}"
+
+
 def receipt_of(snap, city):
     for r in snap["receipts"]["receipts"]:
         if r["city"] == city:
@@ -498,384 +573,392 @@ def receipt_of(snap, city):
     return None
 
 
-def card_head(f, snap, card, x0, y0, w, score_size=42):
-    """Console card top: place, hazard, tag chips, score/100, level chip.
-
-    Returns the y-cursor just below the score/level block.
-    """
-    pad = 26
-    sev = LEVEL_COLOR.get(card["risk_level"], SEV_LOW)
-    f.text((x0 + pad, y0 + 20), card["city"], 26, INK, 650)
-    f.text((x0 + pad, y0 + 54), hazard_of(card), 19, INK_DIM)
-
-    tx = x0 + pad
-    ty = y0 + 84
-    tw, _ = f.chip((tx, ty), card["vertical"], INK_DIM, border=LINE)
-    tx += tw + 8
-    rec = receipt_of(snap, card["city"])
-    if rec:
-        tw, _ = f.chip((tx, ty), f"receipt {rec['receipt_id']}", SEV_MODERATE,
-                       bg=mix(SURFACE1, SEV_MODERATE, 0.12),
-                       border=mix(SURFACE1, SEV_MODERATE, 0.12))
-        tx += tw + 8
-    if card["source_count"]:
-        f.chip((tx, ty), f"{card['source_count']} sources", INK_FAINT, border=LINE)
-
-    # score block, right-aligned like .score-wrap
-    sx = x0 + w - pad
-    f.text((sx, y0 + 16), "RISK SCORE", 14, INK_FAINT, telemetry=True, anchor="ra")
-    f.text((sx, y0 + 34), "/100", 18, INK_FAINT, telemetry=True, anchor="ra")
-    f.text((sx - 56, y0 + 32), str(card["risk_score"]), score_size, sev,
-           telemetry=True, mono_bold=True, anchor="ra")
-    cw, ch = f.sev_chip((0, 0), card["risk_level"], draw=False)
-    f.sev_chip((sx - cw, y0 + 88), card["risk_level"])
-    return y0 + 88 + ch + 6
-
-
 # ── Scenes ──────────────────────────────────────────────────────────────────
 
 
 def scene_cold_open(img, p, S):
+    """v1's title card at v1's scale, in the console's skin.
+
+    v2 opened on a full console page here; that is scene 2's job. The open is a
+    mark, a claim, and the live URL — so the first frames land at the size the
+    operator asked for.
+    """
     snap = S["snapshot"]
     grid = snap["grid"]
-    hero = snap["hero_la_wildfire"]
-    stats = snap["telegraph_stats"]
+    health = snap["health"]
     f = Frame(img, p)
 
-    instruments(f, snap, MARGIN_X, W - MARGIN_X, BODY_TOP, 100)
+    left_w = 1180
+    y = BODY_TOP + 40
+    y += f.text((MARGIN_X, y), "Outbreak Sentinel", 84, INK, 650) + 34
+    for ln in wrap("autonomous early-warning agent, paid through Telegraph",
+                   ui(32), left_w):
+        y += f.text((MARGIN_X, y), ln, 32, INK_DIM) + 10
+    y += 26
 
-    # priority band: the hero signal first, the status rail beside it
-    band_y = BODY_TOP + 116
-    hero_w = 1140
-    f.panel((MARGIN_X, band_y, MARGIN_X + hero_w, band_y + 292),
-            border=LINE, top_edge=LEVEL_EDGE.get(hero["risk_level"], LINE_STRONG),
-            edge_w=5, radius=14)
-    hx, hy = MARGIN_X + 26, band_y + 22
-    f.text((hx, hy), "TOP OPEN SIGNAL", 15, INK_FAINT, telemetry=True)
-    f.text((hx, hy + 26), f"{hero['city']} · {hazard_of(hero)}", 38, INK, 650)
-    f.sev_chip((hx, hy + 80), hero["risk_level"])
-    meta = (f"{hero['risk_score']}/100 · confidence {hero['confidence']*100:.0f}%"
-            f" · {len(hero['drivers'])} drivers · {hero['source_count']} sources")
-    f.text((hx, hy + 126), meta, 21, INK_DIM, telemetry=True)
-    note = trunc(hero["summary"], ui(21), hero_w - 60)
-    f.text((hx, hy + 160), note, 21, INK_DIM)
-    ev = trunc(hero["evidence_line"], ui(20), hero_w - 60)
-    f.text((hx, hy + 192), ev, 20, INK_FAINT)
-    f.text((hx, hy + 232),
-           f"highest of {grid['card_count']} cards in this window",
-           17, INK_FAINT, telemetry=True)
-    f.chip((MARGIN_X + hero_w - 190, band_y + 236), "jump to card", ACCENT,
-           bg=mix(SURFACE1, ACCENT, 0.12), border=mix(SURFACE1, ACCENT, 0.40))
+    pw, ph = f.chip((MARGIN_X, y), f"live · {snap['live_base']}", ACCENT,
+                    bg=mix(SURFACE2, ACCENT, 0.10),
+                    border=mix(SURFACE2, ACCENT, 0.40), size=22, padx=14,
+                    pady=8, telemetry=False)
+    y += ph + 34
 
-    rx = MARGIN_X + hero_w + 20
-    rw = W - MARGIN_X - rx
-    f.panel((rx, band_y, rx + rw, band_y + 292), radius=14)
-    f.text((rx + 22, band_y + 18), "SYSTEM STATUS", 15, INK_FAINT, telemetry=True)
-    rail_rows(f, rx + 22, band_y + 50, rw - 44, [
-        ("Settlements", str(stats["settled"]), INK),
-        ("Receipts", f"{snap['receipts']['count']} · "
-                     f"{snap['scoreboard']['resolved']} resolved", INK),
-        ("Feed", f"{grid['signals']['news']} items", INK),
-        ("Coverage", f"{grid['card_count']} cards · {grid['city_count']} cities",
-         INK),
-        ("Engine", grid["engine"], INK_MID),
-    ], row_h=46)
+    for ln in wrap(
+        f"{grid['card_count']} risk cards · {grid['city_count']} cities · "
+        f"{len(grid['verticals'])} verticals · engine {grid['engine']}",
+        ui(28), left_w,
+    ):
+        y += f.text((MARGIN_X, y), ln, 28, INK) + 10
+    y += 22
+    y += f.text((MARGIN_X, y),
+                "SURVEILLANCE ONLY — never diagnosis, never treatment advice",
+                28, SEV_HIGH, 600) + 18
+    f.text((MARGIN_X, y),
+           "Every card is a cited early-warning signal with traceable sources.",
+           22, INK_DIM)
 
-    # first three risk cards as flat rows, console-style
-    rows = [snap["hero_la_wildfire"], snap["cape_town_wildfire"],
-            snap["london_dengue"]]
-    panel_y = band_y + 308
-    f.panel((MARGIN_X, panel_y, W - MARGIN_X, BODY_BOT), radius=14)
-    f.text((MARGIN_X + 26, panel_y + 16), "RISK CARDS", 15, INK_MID, 650)
-    f.text((W - MARGIN_X - 26, panel_y + 16),
-           f"{grid['card_count']} cards · sorted by severity",
-           15, INK_FAINT, telemetry=True, anchor="ra")
-    row_top = panel_y + 46
-    for card in rows:
-        sev = LEVEL_COLOR.get(card["risk_level"], SEV_LOW)
-        f.line([(MARGIN_X + 4, row_top + 8), (MARGIN_X + 4, row_top + 78)],
-               LEVEL_EDGE.get(card["risk_level"], SEV_EDGE_LOW), 5)
-        f.text((MARGIN_X + 26, row_top + 8), card["city"], 24, INK, 650)
-        f.text((MARGIN_X + 26, row_top + 40), hazard_of(card), 17, INK_DIM)
-        tx = MARGIN_X + 26 + int(ui(24, 650).getlength(card["city"])) + 14
-        f.chip((tx, row_top + 12), card["vertical"], INK_FAINT, border=LINE,
-               size=15)
-        f.text((W - MARGIN_X - 160, row_top + 10), f"{card['risk_score']}/100",
-               24, sev, telemetry=True, mono_bold=True, anchor="ra")
-        cw, _ = f.sev_chip((0, 0), card["risk_level"], size=15, draw=False)
-        f.sev_chip((W - MARGIN_X - 26 - cw, row_top + 42), card["risk_level"], 15)
-        f.text((W - MARGIN_X - 200, row_top + 46),
-               trunc(card["evidence_line"], ui(17), 420), 17, INK_FAINT,
-               anchor="ra")
-        row_top += 88
+    bx = MARGIN_X + 1220
+    f.panel((bx, BODY_TOP + 40, W - MARGIN_X, BODY_TOP + 372), radius=16,
+            top_edge=ACCENT, edge_w=4)
+    f.text((bx + 26, BODY_TOP + 58), "GET /health", 15, INK_FAINT,
+           telemetry=True)
+    fy = BODY_TOP + 92
+    for label, val, col, tel in (
+        ("status", f"{health.get('status')} · v{health.get('version')}", ACCENT, True),
+        ("service", health.get("service"), INK, False),
+        ("captured (UTC)", snap["captured_at"], INK_FAINT, True),
+        ("grid timestamp", grid["timestamp"], INK_FAINT, True),
+    ):
+        f.text((bx + 26, fy), label, 15, INK_FAINT, telemetry=True)
+        fy += 24
+        f.text((bx + 26, fy), str(val), 20, col, telemetry=tel)
+        fy += 42
 
     return Captions([
-        (0.0, "Outbreak Sentinel — an autonomous early-warning console, "
-              "running at a public URL."),
+        (0.0, "Outbreak Sentinel — an autonomous early-warning agent, live at a "
+              "public URL."),
         (0.45, "This video is built from the deployment's real API responses, "
                "captured at build time."),
     ])
 
 
+def console_card(f, snap, card_top):
+    """The live-console hero card, laid out top-down; returns its bottom edge.
+
+    v1's composition and type sizes are the ones the operator preferred, so they
+    are restored here rather than the whole-page shrink v2 rendered; the skin is
+    still v2's — console surfaces, severity left edge, Inter, mono telemetry,
+    cite/anatomy chips. All five cited reports are drawn on the card, so the
+    count-parity caption describes something already on screen.
+    """
+    hero = snap["hero_la_wildfire"]
+    sev = LEVEL_COLOR.get(hero["risk_level"], SEV_LOW)
+
+    lx = MARGIN_X + 40
+    rx = W - MARGIN_X - 500
+    left_w = rx - 40 - lx
+
+    hy = card_top + 30
+    f.text((lx, hy), hero["city"], 46, INK, 650)
+    cx_ = lx + int(ui(46, 650).getlength(hero["city"])) + 22
+    cw, ch = f.sev_chip((0, 0), hero["risk_level"], size=19, draw=False)
+    f.sev_chip((cx_, hy + 12), hero["risk_level"], 19)
+    f.text((cx_ + cw + 18, hy + 8), str(hero["risk_score"]), 32, sev,
+           telemetry=True, mono_bold=True)
+    f.text((cx_ + cw + 18, hy + 46), "/100", 15, INK_FAINT, telemetry=True)
+
+    iy = hy + 84
+    tx = lx
+    tw, th = f.chip((tx, iy), hero["vertical"], INK_DIM, border=LINE)
+    tx += tw + 8
+    rec = receipt_of(snap, hero["city"])
+    if rec:
+        tw, _ = f.chip((tx, iy), f"receipt {rec['receipt_id']}", SEV_MODERATE,
+                        bg=mix(SURFACE1, SEV_MODERATE, 0.12),
+                        border=mix(SURFACE1, SEV_MODERATE, 0.12))
+        tx += tw + 8
+    f.chip((tx, iy), n_sources(hero["source_count"]), INK_FAINT, border=LINE)
+    iy += th + 18
+
+    for ln in wrap(hero["evidence_line"], ui(21), left_w)[:2]:
+        f.text((lx, iy), ln, 21, INK_DIM)
+        iy += 28
+    iy += 12
+    for drv in hero["drivers"]:
+        f.text((lx, iy), trunc(f"• {drv['text']}", ui(26), left_w), 26, INK)
+        iy += 34
+    iy += 12
+
+    f.text((lx, iy), f"sources ({hero['source_count']}) — verbatim from /risk",
+           20, ACCENT)
+    iy += 28
+    for i, src in enumerate(hero["sources"], 1):
+        f.text((lx + 6, iy), trunc(f"{i}. {src['title']}", ui(20), left_w),
+               20, INK)
+        iy += 26
+        f.text((lx + 6, iy), f"{src['outlet']} · {src['published']}", 16,
+               INK_FAINT, telemetry=True)
+        iy += 24
+
+    # right column: confidence, then the captured 7-day series
+    vals = [pt["value"] for pt in hero["chart"]]
+    ry = card_top + 32
+    f.text((rx, ry), f"confidence {hero['confidence']:g}", 21, INK_FAINT,
+           telemetry=True)
+    ry += 44
+    f.text((rx, ry), "7-day precipitation outlook", 20, INK_DIM)
+    ry += 30
+    f.spark((rx, ry, W - MARGIN_X - 40 - rx, 150), vals, sev, 1.0)
+    ry += 168
+    f.text((rx, ry), f"points {len(vals)} · peak {max(vals) if vals else 0:g} mm",
+           18, INK_FAINT, telemetry=True)
+    ry += 30
+    last = hero["chart"][-1]["label"] if hero["chart"] else "—"
+    f.text((rx, ry), f"through {last}", 18, INK_FAINT, telemetry=True)
+    ry += 34
+    f.text((rx, ry),
+           f"evidence_count {hero['evidence_count']} == sources "
+           f"{hero['source_count']}", 18, ACCENT, telemetry=True)
+    ry += 28
+    f.text((rx, ry), "count and links are one number", 18, INK_FAINT)
+
+    return max(iy, ry) + 26
+
+
 def console_base_body(img, p, snap):
-    """The console grid, exactly as it reads before the cited-sources hold."""
+    """The console page: header lines, then the hero card sized to its content."""
     grid = snap["grid"]
     hero = snap["hero_la_wildfire"]
     f = Frame(img, p)
 
-    instruments(f, snap, MARGIN_X, W - MARGIN_X, BODY_TOP, 96)
+    y = BODY_TOP
+    y += f.text((MARGIN_X, y), "THE LIVE CONSOLE", 38, INK, 650) + 16
+    lv = ", ".join(f"{k} {v}" for k, v in grid["levels"].items())
+    y += f.text((MARGIN_X, y),
+                f"/risk · {grid['card_count']} cards · {grid['city_count']} "
+                f"cities · levels {lv}", 24, INK_DIM) + 10
+    sig = grid["signals"]
+    y += f.text((MARGIN_X, y),
+                f"signals: news {sig['news']} (city-scoped "
+                f"{sig['news_city_scoped']}) · social {sig['social']} · "
+                f"weather cities {sig['cities']}", 21, INK_FAINT) + 26
 
-    panel_y = BODY_TOP + 110
-    left_w = 1100
-    f.panel((MARGIN_X, panel_y, MARGIN_X + left_w, BODY_BOT), radius=14)
-    f.text((MARGIN_X + 26, panel_y + 16), "RISK CARDS", 15, INK_MID, 650)
-    f.text((MARGIN_X + left_w - 26, panel_y + 16),
-           f"{grid['card_count']} · {grid['city_count']} cities",
-           15, INK_FAINT, telemetry=True, anchor="ra")
+    card_top = y
+    m = Measure()
+    card_bot = console_card(m, snap, card_top)
+    if card_bot > BODY_BOT:
+        raise SystemExit(
+            f"console card content reaches {card_bot}, body ends {BODY_BOT} — "
+            f"refusing to crop the cited reports")
 
-    # card A: the hero, full anatomy with evidence, cites and its series
-    ax, ay = MARGIN_X, panel_y + 48
-    aw = left_w
-    ah = 292
-    sev = LEVEL_COLOR.get(hero["risk_level"], SEV_LOW)
-    f.panel((ax, ay, ax + aw, ay + ah), radius=12,
+    f.panel((MARGIN_X, card_top, W - MARGIN_X, card_bot), radius=16,
             left_edge=LEVEL_EDGE.get(hero["risk_level"], SEV_EDGE_LOW), edge_w=5)
-    by = card_head(f, snap, hero, ax, ay, aw)
-    f.text((ax + 26, by + 2), trunc(hero["evidence_line"], ui(19), aw - 380),
-           19, INK_DIM)
-    # cited sources as console .cite chips
-    cx = ax + 26
-    f.text((cx, by + 34), "CITED SOURCES", 14, INK_FAINT, telemetry=True)
-    cy = by + 56
-    for src in hero["sources"][:4]:
-        label = f"{src['outlet']} · {src['published'][5:]}"
-        w, _ = f.chip((cx, cy), label, INK_DIM, border=LINE, size=15)
-        cx += w + 8
-    if len(hero["sources"]) > 4:
-        f.text((cx + 4, cy + 5), f"+{len(hero['sources']) - 4} more", 15,
-               INK_FAINT, telemetry=True)
-    # spark: the captured 7-day series, colored by severity
-    vals = [pt["value"] for pt in hero["chart"]]
-    sx = ax + aw - 350
-    f.text((sx, by + 30), "rain forecast · 7d", 14, INK_FAINT, telemetry=True)
-    spark(f.d, (sx, by + 50, 300, 64), vals, sev, 1.0)
-    f.text((sx, by + 122),
-           f"min {min(vals):g} · max {max(vals):g} · "
-           f"{'▲' if vals[-1] >= vals[0] else '▼'} {abs(vals[-1] - vals[0]):g}",
-           15, INK_FAINT, telemetry=True)
-    f.text((sx, by + 144),
-           f"{hero['evidence_count']} evidence == {hero['source_count']} sources",
-           15, ACCENT, telemetry=True)
-
-    # cards B and C: compact rows
-    ry = ay + ah + 8
-    for card in (snap["cape_town_wildfire"], snap["london_dengue"]):
-        csev = LEVEL_COLOR.get(card["risk_level"], SEV_LOW)
-        f.panel((ax, ry, ax + aw, ry + 132), radius=12,
-                left_edge=LEVEL_EDGE.get(card["risk_level"], SEV_EDGE_LOW),
-                edge_w=5)
-        f.text((ax + 26, ry + 18), card["city"], 25, INK, 650)
-        f.text((ax + 26, ry + 52), hazard_of(card), 18, INK_DIM)
-        f.chip((ax + 26, ry + 82), card["vertical"], INK_FAINT, border=LINE,
-               size=15)
-        f.text((ax + 380, ry + 50), trunc(card["evidence_line"], ui(19), 430),
-               19, INK_DIM)
-        f.text((ax + 380, ry + 84),
-               f"confidence {card['confidence']*100:.0f}% · "
-               f"{card['source_count']} sources", 16, INK_FAINT, telemetry=True)
-        f.text((ax + aw - 160, ry + 26), f"{card['risk_score']}/100", 28, csev,
-               telemetry=True, mono_bold=True, anchor="ra")
-        cw, _ = f.sev_chip((0, 0), card["risk_level"], size=15, draw=False)
-        f.sev_chip((ax + aw - 26 - cw, ry + 74), card["risk_level"], 15)
-        ry += 140
-
-    # right rail: feed/coverage/levels, the console's aggregate column
-    rx = MARGIN_X + left_w + 20
-    rw = W - MARGIN_X - rx
-    f.panel((rx, panel_y, rx + rw, BODY_BOT), radius=14)
-    f.text((rx + 24, panel_y + 16), "FEED & COVERAGE", 15, INK_FAINT,
-           telemetry=True)
-    iy = panel_y + 50
-    rail_rows(f, rx + 24, iy, rw - 48, [
-        ("news signals", str(grid["signals"]["news"]), INK),
-        ("city-scoped", str(grid["signals"]["news_city_scoped"]), INK),
-        ("wildfire-scoped", str(grid["signals"]["wildfire_city_scoped"]), INK),
-        ("social", str(grid["signals"]["social"]), INK),
-        ("cities", str(grid["city_count"]), INK),
-    ], row_h=44)
-    iy += 5 * 44 + 16
-
-    f.text((rx + 24, iy), "SEVERITY THIS WINDOW", 15, INK_FAINT, telemetry=True)
-    iy += 26
-    lvmax = max(grid["levels"].values()) or 1
-    for level in ("HIGH", "MODERATE", "LOW"):
-        n = grid["levels"].get(level, 0)
-        f.text((rx + 24, iy), level, 15, LEVEL_COLOR[level], telemetry=True)
-        f.rect((rx + 110, iy + 4, rx + 110 + int(140 * n / lvmax), iy + 16),
-               LEVEL_COLOR[level])
-        f.text((rx + 262, iy), str(n), 15, INK, telemetry=True)
-        iy += 26
-    iy += 14
-    f.text((rx + 24, iy), "VERTICALS", 15, INK_FAINT, telemetry=True)
-    iy += 26
-    for vert, n in grid["verticals"].items():
-        f.text((rx + 24, iy), trunc(vert, ui(17), 190), 17, INK_DIM)
-        f.text((rx + rw - 24, iy), str(n), 17, INK, telemetry=True, anchor="ra")
-        iy += 26
-    iy += 10
-    f.hline(rx + 24, rx + rw - 24, iy)
-    iy += 16
-    f.text((rx + 24, iy), "engine", 15, INK_FAINT, telemetry=True)
-    f.text((rx + rw - 24, iy), grid["engine"], 15, INK, telemetry=True,
-           anchor="ra")
-    iy += 26
-    f.text((rx + 24, iy), "grid timestamp", 15, INK_FAINT, telemetry=True)
-    f.text((rx + rw - 24, iy), grid["timestamp"], 15, INK, telemetry=True,
-           anchor="ra")
+    console_card(f, snap, card_top)
 
 
 def scene_console(img, p, S):
+    """One uninterrupted reveal, v1-style: the console page, then a hold.
+
+    All five cited reports are drawn on the card itself (see
+    ``console_base_body``), so the count-parity caption lands on the list it
+    describes instead of on a second layout reached by a cut.
+    """
     snap = S["snapshot"]
     grid = snap["grid"]
     hero = snap["hero_la_wildfire"]
 
-    zoom_start = 1.0 - SOURCES_TOTAL_S / S["dur"]
-    subs = [
+    console_base_body(img, p, snap)
+    return Captions([
         (0.0, f"One render of /risk returns the whole grid: {grid['card_count']} "
               "cards, every one computed in code."),
         (0.40, f"Los Angeles — wildfire {hero['risk_level']} {hero['risk_score']}: "
                f"{hero['evidence_count']} city-specific reports in seven days, "
                "plus a high-wind driver."),
-        (0.68, f"The card counts {hero['source_count']} sources; the news driver "
-               f"counts {hero['evidence_count']} reports. Same number."),
-        (zoom_start, "Each of those stories, one row per cited report — so the "
-                     "count on the card and the rendered sources are visibly "
-                     "one list."),
-    ]
-    # Counting pass measures the base layout, so reveal pacing is unchanged.
-    if Frame._counting or p < zoom_start:
-        console_base_body(img, p, snap)
-        return Captions(subs)
+        (0.68, f"The card counts {hero['source_count']} sources — every one of "
+               "them cited below it. Same number."),
+        (0.86, "Count the cited reports on the card: the driver's report count "
+               "and the rendered sources are one list, not two claims."),
+    ])
 
-    # Cut to the cited-stories detail, then push: the plate starts at its
-    # whole-block fit and eases to 1:1, which is the 1.6x layout — the widest
-    # framing IS the layout, so no row can leave the frame.
-    sources_detail_frame(img, snap, (p - zoom_start) * S["dur"])
-    ImageDraw.Draw(img).text(
-        (MARGIN_X, 124), "cited sources — every cited report, one row each",
-        font=mono(19), fill=ACCENT)
-    return Captions(subs)
+
+def integrity_card(f, snap, card, x0, y0, w, score_size=34, footer=None):
+    """One evidence-gate card, laid out top-down; returns its bottom edge.
+
+    v1's proportion — the card is only as tall as what it says — in v2's skin:
+    severity left edge, chips for the anatomy, mono telemetry, Inter for prose.
+    Type sizes are v1's, not v2's page-scale shrink. ``footer`` is an optional
+    ``(label, prose)`` block owned by this card (the empty card's "why this
+    matters"), so the explanation sits with the card it explains.
+    """
+    pad = 30
+    sev = LEVEL_COLOR.get(card["risk_level"], SEV_LOW)
+
+    hy = y0 + 22
+    f.text((x0 + pad, hy), card["city"], 44, INK, 650)
+    cx = x0 + pad + int(ui(44, 650).getlength(card["city"])) + 22
+    cw, _ = f.sev_chip((0, 0), card["risk_level"], size=19, draw=False)
+    f.sev_chip((cx, hy + 14), card["risk_level"], 19)
+    f.text((cx + cw + 18, hy + 8), str(card["risk_score"]), score_size, sev,
+           telemetry=True, mono_bold=True)
+    f.text((cx + cw + 18, hy + 52), "/100", 16, INK_FAINT, telemetry=True)
+
+    y = hy + 74
+    tx = x0 + pad
+    tw, _ = f.chip((tx, y), hazard_of(card), INK_DIM, border=LINE, size=17)
+    tx += tw + 8
+    tw, _ = f.chip((tx, y), n_sources(card["source_count"]), INK_FAINT,
+                    border=LINE, size=17)
+    tx += tw + 8
+    f.chip((tx, y), f"confidence {card['confidence']*100:.0f}%", INK_FAINT,
+           border=LINE, size=17)
+    y += 40
+
+    for ln in wrap(card["evidence_line"], ui(22), w - 2 * pad)[:2]:
+        f.text((x0 + pad, y), ln, 22, INK_DIM)
+        y += 30
+    y += 6
+
+    if card["drivers"]:
+        f.hline(x0 + pad, x0 + w - pad, y)
+        y += 14
+        f.text((x0 + pad, y), f"CONTRIBUTING SIGNALS ({len(card['drivers'])})",
+               15, INK_FAINT, telemetry=True)
+        y += 28
+        for i, drv in enumerate(card["drivers"]):
+            f.text((x0 + pad, y), str(drv["kind"]).upper(), 15, INK_FAINT,
+                   telemetry=True)
+            f.rect((x0 + pad + 110, y + 5, x0 + pad + 270, y + 13), SURFACE3)
+            f.rect((x0 + pad + 110, y + 5,
+                    x0 + pad + 110 + int(160 * max(0.18, 1 - i * 0.17)),
+                    y + 13), sev)
+            f.text((x0 + pad + 290, y),
+                   trunc(drv["text"], ui(19), w - pad - 290), 19, INK_MID)
+            y += 34
+        y += 4
+
+    if card["summary"]:
+        f.chip((x0 + pad, y), "AI", ACCENT, bg=mix(SURFACE2, ACCENT, 0.12),
+               border=mix(SURFACE2, ACCENT, 0.40), size=15, padx=8, pady=2)
+        bx = x0 + pad + 56
+        bw = w - (bx - x0) - pad
+        for ln in wrap_clamped(card["summary"], ui(19), bw, 3):
+            f.text((bx, y), ln, 19, INK_DIM)
+            y += 28
+        y += 8
+
+    if card["recommendation"]:
+        aw_, _ = f.chip((x0 + pad, y), "ACTION", SEV_HIGH,
+                        bg=mix(SURFACE2, SEV_HIGH, 0.12),
+                        border=mix(SURFACE2, SEV_HIGH, 0.12), size=15, padx=8,
+                        pady=2)
+        bx = x0 + pad + aw_ + 16
+        bw = w - (bx - x0) - pad
+        for ln in wrap_clamped(card["recommendation"], ui(19), bw, 2):
+            f.text((bx, y), ln, 19, INK_DIM)
+            y += 28
+        y += 12
+
+    f.hline(x0 + pad, x0 + w - pad, y)
+    y += 14
+    f.text((x0 + pad, y), f"CITED SOURCES ({card['source_count']})", 15,
+           INK_FAINT, telemetry=True)
+    y += 30
+    if card["sources"]:
+        for src in card["sources"]:
+            f.text((x0 + pad, y), trunc(src["title"], ui(20), w - 2 * pad - 20),
+                   20, INK)
+            y += 27
+            f.text((x0 + pad + 20, y),
+                   f"{src['outlet']} · {src['published']}", 16, INK_FAINT,
+                   telemetry=True)
+            y += 27
+    else:
+        f.text((x0 + pad, y), f"{card['source_count']} — none for this city",
+               20, INK_MID, telemetry=True)
+        y += 30
+        f.text((x0 + pad, y), "no fabricated citation", 19, ACCENT)
+        y += 30
+
+    rec = receipt_of(snap, card["city"])
+    if rec:
+        y += 4
+        f.hline(x0 + pad, x0 + w - pad, y)
+        y += 14
+        f.text((x0 + pad, y), "receipt", 15, INK_FAINT, telemetry=True)
+        f.text((x0 + pad + 86, y), rec["receipt_id"], 16, INK_DIM,
+               telemetry=True)
+        f.text((x0 + w - pad, y), f"status {rec['status'].upper()}", 15,
+               SEV_MODERATE, telemetry=True, anchor="ra")
+        y += 28
+        f.text((x0 + pad, y), rec["content_hash"], 15, INK_FAINT,
+               telemetry=True)
+        y += 22
+
+    if footer:
+        label, prose = footer
+        f.hline(x0 + pad, x0 + w - pad, y)
+        y += 14
+        f.text((x0 + pad, y), label, 15, INK_FAINT, telemetry=True)
+        y += 26
+        for ln in wrap(prose, ui(19), w - 2 * pad):
+            f.text((x0 + pad, y), ln, 19, INK_DIM)
+            y += 27
+
+    return y + pad
 
 
 def scene_integrity(img, p, S):
     snap = S["snapshot"]
     lo = snap["london_dengue"]
     empty = snap["empty_bio"]
-    f = Frame(img, p)
 
     y = BODY_TOP
-    y += f.text((MARGIN_X, y), "EVIDENCE GATE", 34, INK, 650) + 10
+    f = Frame(img, p)
+    y += f.text((MARGIN_X, y), "THE EVIDENCE GATE", 38, INK, 650) + 14
     f.text((MARGIN_X, y),
            "a card may only cite reports for its own city and its own disease",
-           21, INK_DIM)
+           24, INK_DIM)
 
-    card_y = BODY_TOP + 72
-    cw_ = 1000
-    sev = LEVEL_COLOR.get(lo["risk_level"], SEV_LOW)
-    f.panel((MARGIN_X, card_y, MARGIN_X + cw_, BODY_BOT), radius=14,
+    card_y = BODY_TOP + 86
+    lw = 1010
+    rx = MARGIN_X + lw + 24
+    rw = W - MARGIN_X - rx
+
+    note = ("Another disease's outbreak is never this card's evidence. No "
+            "evidence in the window stays an honest low instead of a "
+            "manufactured alert.")
+
+    # Size each panel to its own content, the way v1 did: measure once, then
+    # paint. No card carries a dead band under its last drawn line.
+    m = Measure()
+    london_bot = integrity_card(m, snap, lo, MARGIN_X, card_y, lw)
+    empty_bot = integrity_card(m, snap, empty, rx, card_y, rw,
+                               footer=("WHY THIS MATTERS", note))
+
+    if max(london_bot, empty_bot) > BODY_BOT:
+        raise SystemExit(
+            f"evidence gate reaches {max(london_bot, empty_bot)}, body ends "
+            f"{BODY_BOT} — refusing to crop a card")
+
+    f.panel((MARGIN_X, card_y, MARGIN_X + lw, london_bot), radius=16,
             left_edge=LEVEL_EDGE.get(lo["risk_level"], SEV_EDGE_LOW), edge_w=5)
-    by = card_head(f, snap, lo, MARGIN_X, card_y, cw_, score_size=38)
-    f.text((MARGIN_X + 26, by), trunc(lo["evidence_line"], ui(19), cw_ - 52),
-           19, INK_DIM)
-    by += 30
-    f.hline(MARGIN_X + 26, MARGIN_X + cw_ - 26, by)
-    by += 14
+    integrity_card(f, snap, lo, MARGIN_X, card_y, lw)
 
-    f.text((MARGIN_X + 26, by), f"CONTRIBUTING SIGNALS ({len(lo['drivers'])})",
-           14, INK_FAINT, telemetry=True)
-    by += 24
-    for i, drv in enumerate(lo["drivers"]):
-        f.text((MARGIN_X + 26, by), str(drv["kind"]).upper(), 14, INK_FAINT,
-               telemetry=True)
-        f.rect((MARGIN_X + 120, by + 4, MARGIN_X + 240, by + 10), SURFACE3)
-        f.rect((MARGIN_X + 120, by + 4,
-                MARGIN_X + 120 + int(120 * max(0.18, 1 - i * 0.17)),
-                by + 10), sev)
-        f.text((MARGIN_X + 258, by), trunc(drv["text"], ui(17), 520), 17,
-               INK_MID)
-        by += 28
-    by += 8
+    f.panel((rx, card_y, W - MARGIN_X, empty_bot), radius=16,
+            left_edge=LEVEL_EDGE.get(empty["risk_level"], SEV_EDGE_LOW),
+            edge_w=5)
+    integrity_card(f, snap, empty, rx, card_y, rw,
+                   footer=("WHY THIS MATTERS", note))
 
-    # AI narrative and the requested action, both clamped and ellipsized
-    f.chip((MARGIN_X + 26, by), "AI", ACCENT, bg=mix(SURFACE1, ACCENT, 0.12),
-           border=mix(SURFACE1, ACCENT, 0.40), size=14, padx=8, pady=2)
-    body_x = MARGIN_X + 26 + 46
-    body_w = cw_ - 26 - 46 - 26
-    for ln in wrap_clamped(lo["summary"], ui(17), body_w, 3):
-        f.text((body_x, by), ln, 17, INK_DIM)
-        by += 24
-    by += 10
-    aw_, _ = f.chip((MARGIN_X + 26, by), "ACTION", SEV_HIGH,
-                    bg=mix(SURFACE1, SEV_HIGH, 0.12),
-                    border=mix(SURFACE1, SEV_HIGH, 0.12), size=14, padx=8, pady=2)
-    action_x = MARGIN_X + 26 + aw_ + 16
-    action_w = cw_ - (action_x - MARGIN_X) - 26
-    for ln in wrap_clamped(lo["recommendation"], ui(17), action_w, 2):
-        f.text((action_x, by), ln, 17, INK_DIM)
-        by += 24
-    by += 16
-
-    f.text((MARGIN_X + 26, by), "CITED SOURCES", 14, INK_FAINT, telemetry=True)
-    cx = MARGIN_X + 26
-    cy = by + 24
-    for src in lo["sources"]:
-        w, _ = f.chip((cx, cy), f"{src['outlet']} · {src['published'][5:]}",
-                      INK_DIM, border=LINE, size=15)
-        cx += w + 8
-    f.text((cx + 2, cy + 5), "one story", 15, INK_FAINT, telemetry=True)
-    cy += 46
-
-    rec = receipt_of(snap, lo["city"])
-    if rec:
-        f.hline(MARGIN_X + 26, MARGIN_X + cw_ - 26, cy)
-        cy += 14
-        f.text((MARGIN_X + 26, cy), "receipt", 15, INK_FAINT, telemetry=True)
-        f.text((MARGIN_X + 100, cy), rec["receipt_id"], 15, INK_DIM,
-               telemetry=True)
-        f.text((MARGIN_X + cw_ - 26, cy), "status OPEN", 15, SEV_MODERATE,
-               telemetry=True, anchor="ra")
-        cy += 24
-        f.text((MARGIN_X + 26, cy), rec["content_hash"], 14, INK_FAINT,
-               telemetry=True)
-
-    # the honest-empty card, beside it
-    ex = MARGIN_X + cw_ + 24
-    ew = W - MARGIN_X - ex
-    f.panel((ex, card_y, ex + ew, card_y + 372), radius=14,
-            left_edge=LEVEL_EDGE.get(empty["risk_level"], SEV_EDGE_LOW), edge_w=5)
-    eby = card_head(f, snap, empty, ex, card_y, ew, score_size=38)
-    f.text((ex + 26, eby), trunc(empty["evidence_line"], ui(18), ew - 52),
-           18, INK_DIM)
-    eby += 30
-    f.hline(ex + 26, ex + ew - 26, eby)
-    eby += 14
-    f.text((ex + 26, eby), "CITED SOURCES", 14, INK_FAINT, telemetry=True)
-    eby += 24
-    f.text((ex + 26, eby), f"{empty['source_count']} — none for this city",
-           18, INK_MID, telemetry=True)
-    eby += 28
-    f.text((ex + 26, eby), "no fabricated citation", 17, ACCENT)
-
-    note_y = card_y + 392
-    f.panel((ex, note_y, ex + ew, BODY_BOT), radius=14, fill=SURFACE2)
-    f.text((ex + 24, note_y + 18), "WHY THIS MATTERS", 14, INK_FAINT,
-           telemetry=True)
-    ny = note_y + 46
-    for ln in wrap("Another disease's outbreak is never this card's evidence. "
-                   "No evidence in the window stays an honest low instead of "
-                   "a manufactured alert.", ui(18), ew - 48):
-        f.text((ex + 24, ny), ln, 18, INK_DIM)
-        ny += 26
+    # v1's payoff, stated under the card instead of parked in a dead band
+    py = london_bot + 28
+    f.text((MARGIN_X, py),
+           "The one cited story is a local vector report — not another "
+           "disease's outbreak.", 26, ACCENT)
+    py += 40
+    f.text((MARGIN_X, py),
+           f"No city-specific evidence stays honest: e.g. {empty['city']} "
+           f"{empty['risk_level']} {empty['risk_score']} with "
+           f"{n_sources(empty['source_count'])}.", 23, INK_DIM)
 
     return Captions([
         (0.0, "The differentiator is the evidence gate."),
@@ -893,19 +976,22 @@ def scene_resilience(img, p, S):
     f = Frame(img, p)
 
     y = BODY_TOP
-    y += f.text((MARGIN_X, y), "GRACEFUL DEGRADATION", 34, INK, 650) + 10
+    y += f.text((MARGIN_X, y), "GRACEFUL DEGRADATION", 38, INK, 650) + 12
     f.text((MARGIN_X, y),
            "the weather grid survives a provider outage instead of blanking "
-           "the cards", 21, INK_DIM)
+           "the cards", 24, INK_DIM)
 
-    top = BODY_TOP + 72
+    top = BODY_TOP + 88
     ph = 424
     lw = 812
-    f.panel((MARGIN_X, top, MARGIN_X + lw, top + ph), radius=14,
+    f.panel((MARGIN_X, top, MARGIN_X + lw, top + ph), radius=16,
             top_edge=ACCENT, edge_w=4)
     f.text((MARGIN_X + 26, top + 22), "GET /debug/weather — live today",
            16, ACCENT, telemetry=True)
-    f.chip((MARGIN_X + lw - 26 - 116, top + 16), "19 / 19 ok", ACCENT,
+    ok_chip = f"{live['ok']} / {live['attempted_cities']} ok"
+    cw_, _ = f.chip((0, 0), ok_chip, ACCENT, size=15, padx=10, pady=3,
+                     draw=False)
+    f.chip((MARGIN_X + lw - 26 - cw_, top + 16), ok_chip, ACCENT,
            bg=mix(SURFACE1, ACCENT, 0.12), border=mix(SURFACE1, ACCENT, 0.40),
            size=15, padx=10, pady=3)
     providers = sorted({c["provider"] for c in live["cities"] if c.get("provider")})
@@ -967,100 +1053,6 @@ def ease(t):
 
 
 _PLATE: dict[str, Image.Image] = {}
-
-
-def sources_plate(snap):
-    """The LA card's cited reports, laid out at ``SOURCES_ZOOM`` inside the box.
-
-    One row per cited report, so the card's ``source_count`` and the news
-    driver's report count are read as one list rather than asserted as equal.
-    Like the evidence plate this is the widest framing the camera reaches, so
-    it doubles as the fit check: gaps compress, and if the text alone cannot
-    fit the build fails instead of drawing a clipped row.
-    """
-    hero = snap["hero_la_wildfire"]
-    x0, y0, x1, y1 = SOURCES_BOX
-    bw, bh = x1 - x0, y1 - y0
-    img = Image.new("RGB", (bw, bh), BG)
-    d = ImageDraw.Draw(img)
-
-    k = SOURCES_ZOOM
-    sz = lambda v: int(round(v * k))
-    pad = sz(26)
-    inner = bw - 2 * pad
-    lh = lambda size: int(round(size * 1.34))
-    indent = sz(56)
-
-    news = next((drv["text"] for drv in hero["drivers"]
-                 if drv["kind"] == "news"), "")
-    label = (f"CARD {hero['city'].upper()} · {hero['risk_level']} "
-             f"{hero['risk_score']}/100 · WILDFIRE")
-    pairing = (f"{hero['source_count']} sources on the card · news driver: "
-               f"{news} · one list")
-    pairing_lines = wrap(pairing, ui(sz(23), 600), inner)
-    rows = []
-    for i, src in enumerate(hero["sources"], 1):
-        title_lines = wrap(src["title"], ui(sz(21)), inner - indent)
-        meta = f"{src['outlet']} · {src['published']}"
-        rows.append((title_lines, sz(21), meta, sz(17)))
-
-    gap_a, gap_b = sz(14), sz(20)
-    text_h = (lh(sz(18)) + gap_a + len(pairing_lines) * lh(sz(23)) + gap_b
-              + sum(len(t) * lh(s1) + lh(s2) + gap_a for t, s1, _m, s2 in rows))
-    budget = bh - text_h - sz(16)
-    if budget < 0:
-        raise SystemExit(
-            f"cited-sources text alone is {text_h}px, box {bh}px — cannot fit "
-            f"at {SOURCES_ZOOM}x without shrinking type; refusing to crop")
-    # Whitespace absorbs the surplus so the block fills the box instead of
-    # leaving a dead band at the bottom. ``text_h`` already counts the gaps at
-    # scale 1, so the extra is added on top of them, never substituted.
-    gap_base = gap_a * (len(rows) + 1) + gap_b
-    gap_scale = min(2.2, 1.0 + max(0, budget - 4) / max(1, gap_base))
-    # floor, never round: a gap may give back a pixel, never take one
-    g = lambda v: int(v * gap_scale)
-
-    y = sz(16)
-    d.text((pad, y), label, font=mono(sz(18)), fill=ACCENT)
-    y += lh(sz(18)) + g(gap_a)
-    for ln in pairing_lines:
-        d.text((pad, y), ln, font=ui(sz(23), 600), fill=INK)
-        y += lh(sz(23))
-    y += g(gap_b)
-
-    sev = LEVEL_COLOR.get(hero["risk_level"], SEV_LOW)
-    for i, (title_lines, t_size, meta, m_size) in enumerate(rows, 1):
-        row_h = lh(t_size) * max(1, len(title_lines)) + lh(m_size)
-        d.line([(pad, y + 4), (pad, y + row_h - 4)], fill=sev, width=sz(5))
-        d.line([(pad + sz(16), y + 2), (bw - pad, y + 2)], fill=LINE, width=1)
-        d.text((pad + sz(6), y + 2), f"{i:02d}", font=mono(sz(19)),
-               fill=INK_FAINT)
-        for ln in title_lines:
-            d.text((pad + indent, y), ln, font=ui(t_size), fill=INK)
-            y += lh(t_size)
-        d.text((pad + indent, y), meta, font=mono(m_size), fill=INK_FAINT)
-        y += lh(m_size) + g(gap_a)
-
-    if y > bh:
-        raise SystemExit(
-            f"cited-sources plate bottom {y} exceeds box {bh} — refusing to crop")
-    return img
-
-
-def sources_detail_frame(img, snap, elapsed):
-    """Ease from the whole fitted sources block to the 1:1 (1.6x) layout, hold."""
-    plate = _PLATE.get("sources")
-    if plate is None:
-        plate = _PLATE["sources"] = sources_plate(snap)
-    x0, y0, x1, y1 = SOURCES_BOX
-    start = 1.0 / SOURCES_ZOOM
-    f = start + (1.0 - start) * ease(elapsed / SOURCES_RAMP_S)
-    if f >= 0.999:
-        img.paste(plate, (x0, y0))
-        return
-    w, h = int(round(plate.width * f)), int(round(plate.height * f))
-    img.paste(plate.resize((w, h), Image.LANCZOS),
-              (x0 + ((x1 - x0) - w) // 2, y0 + ((y1 - y0) - h) // 2))
 
 
 def money_evidence_plate(snap):
@@ -1207,10 +1199,10 @@ def money_base_body(img, p, snap):
            f"x402 · {st['network_label']} · a paid assessment, read back from "
            f"the chain", 21, INK_DIM)
 
-    top = BODY_TOP + 72
+    top = BODY_TOP + 88
     lw = 780
     ph = 452
-    f.panel((MARGIN_X, top, MARGIN_X + lw, top + ph), radius=14, top_edge=ACCENT,
+    f.panel((MARGIN_X, top, MARGIN_X + lw, top + ph), radius=16, top_edge=ACCENT,
             edge_w=4)
     f.text((MARGIN_X + 26, top + 22), "LAST SETTLEMENT", 15, ACCENT,
            telemetry=True)
@@ -1276,23 +1268,25 @@ def money_base_body(img, p, snap):
                14, INK_FAINT, telemetry=True)
         ry += rh + 14
 
-    # ledger strip
-    sy = top + ph + 18
-    f.panel((MARGIN_X, sy, W - MARGIN_X, BODY_BOT), radius=14)
+    # ledger strip — sized to its own content, not stretched to the body floor
+    sy = top + ph + 20
+    sy_bot = sy + 96
+    f.panel((MARGIN_X, sy, W - MARGIN_X, sy_bot), radius=14)
     pad = 26
+    verdicts = ", ".join(f"{k} {v}" for k, v in stats["verdicts"].items() if v)
     cols = [
         ("assessments", str(stats["assessments"]), INK, True),
         ("settled", str(stats["settled"]), ACCENT, True),
         ("total", f"{stats['total_usdc']} USDC", INK, True),
         ("integrity", f"{stats['integrity_pct']:g}%", ACCENT, True),
-        ("verdicts", "HIGH 2", INK_MID, False),
+        ("verdicts", verdicts or "none", INK_MID, False),
         ("ledger", "sha256, append-only", INK_MID, False),
     ]
     cw_ = (W - 2 * MARGIN_X - 2 * pad) // len(cols)
     for i, (k, v, col, tel) in enumerate(cols):
         cx = MARGIN_X + pad + i * cw_
         if i:
-            f.line([(cx - 16, sy + 16), (cx - 16, BODY_BOT - 16)], LINE, 1)
+            f.line([(cx - 16, sy + 14), (cx - 16, sy_bot - 14)], LINE, 1)
         f.text((cx, sy + 16), k, 14, INK_FAINT, telemetry=True)
         if tel:
             f.text((cx, sy + 38), v, 22, col, telemetry=True, mono_bold=True)
@@ -1459,9 +1453,15 @@ def build_video(snap):
 
 
 def build_montage(snap, out_path):
-    """Six representative frames into one contact sheet, for human review."""
+    """Six representative frames into one contact sheet, for human review.
+
+    One frame per scene, no scene twice: with scene 2 now a single uninterrupted
+    reveal there is no second layout to show, and a sheet that repeats the same
+    page at two reveal stages reads as a duplicate frame. The money slot lands
+    inside the 1.5x hold, which is the cut's one move.
+    """
     measure(snap)
-    picks = [(0, 0.95), (1, 0.55), (1, 0.95), (2, 0.95), (3, 0.95), (4, 0.95)]
+    picks = [(0, 0.95), (1, 0.95), (2, 0.95), (3, 0.95), (4, 0.99), (5, 0.95)]
     thumbs = []
     for si, p in picks:
         thumbs.append(render_frame(snap, si, p, 0.5).resize((640, 360),
