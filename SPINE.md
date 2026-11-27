@@ -2353,3 +2353,95 @@ rendered frames `(1, 0.95)` and `(4, 0.95)` and hashed identically
 
 **Commits:** `fix(demo): V-4 — viewer-facing settlement label, cited-sources detail hold`
 (`10c3034`), then this SPINE checkpoint.
+
+---
+
+## 2026-11-27 — Soldier V-5
+
+**Scope:** the operator watched both cuts and ruled: **v1's animations, transitions, flow, size
+and magnification were better; v2's console-mirrored visuals and Inter were better.** The
+instruction was to re-skin v1 and drop the judge wording — everything else, including pacing
+and holds, should have stayed. V-3/V-4 rebuilt the renderer instead, and the motion drifted.
+V-5 rebuilds from **both** ancestors: v1's motion engine drives v2's console scenes.
+
+Owned files: `demo/render_video.py`, `demo/outbreak-sentinel-demo-v3.mp4` (new),
+`demo/VIDEO-CAPTIONS.md`, `demo/screenshots/`, `demo/frames/montage-v5.png`, `SPINE.md`.
+Did **not** touch `app.py`, `tests/`, `dashboard/`, `telegraph/`.
+
+**Protected, verified byte-identical before and after the whole session:**
+`demo/outbreak-sentinel-demo.mp4` md5 `2259ce54d69f26103cf0155996bc36ac`,
+`demo/outbreak-sentinel-demo-v1-backup.mp4` md5 `42b8a387cd539c89a84eeebaa997fd26`.
+`OUT_VIDEO` was repointed to `-v3.mp4` first, precisely so a render could not overwrite either.
+
+### Motion ported from v1 (`git show 88e6d65` and `d275b0f`)
+- **Reveal pacing** back to `REVEAL_SPAN = 0.55` (v2 stretched it to 0.58).
+- **One uninterrupted reveal per scene.** v1 never cut inside a scene; v2 added a second
+  mid-scene cut in scene 2 (cut → 1.6× cited-sources plate → ramp → hold). That cut is **gone**.
+  All five cited reports now render inline on the LA card, so the count-parity point is read
+  off the frame instead of asserted over a layout change. This restores the operator's "v1's
+  flow" without giving up V-4's fix — V-4's actual nit (frames 2 and 3 near-duplicates) is
+  resolved better by having one frame per scene in the sheet.
+- **The single magnification move keeps v1's numbers**: `ZOOM_RAMP_S = 0.5`,
+  `ZOOM_HOLD_S = 4.0`, `ZOOM_MAX = 1.5`, plate fitted whole then eased to 1:1.
+- **Content-sized panels** (v1's proportion). New `Measure` frame subclass lays a card out once
+  without drawing, so the panel is painted to its own content bottom. `integrity_card()` and
+  `console_card()` both use it; each still raises `SystemExit` rather than cropping.
+- **Magnification restored.** v2 rendered the console as a whole page (instrument strip, three
+  stacked cards, right rail) at page scale — that whole-page fit is what shrank every glyph.
+  v3 restores v1's composition (title card for scene 1; one large hero card with its cited
+  reports plus the chart column for scene 2) at v1's type sizes, in Inter.
+
+### Captions
+**Inter 26 px → 30 px**, lead 38 → 42, wrap width `SHELL_W - 120` → `SHELL_W - 60`, strip bar
+raised so two lines still clear the footer chrome. Audited all 18 captions at the new size: 17
+fit on one line, scene 4's third wraps to two, none exceed the two-line clamp, nothing leaves
+the margins. Neutral voice and the honest-capture disclaimer are untouched.
+
+### Truth fixes found while porting
+Two rendered strings were literals, not captured values — this project's rule is that every
+rendered string interpolates the snapshot:
+- scene 4's ok-chip `19 / 19 ok` → `f"{live['ok']} / {live['attempted_cities']} ok"`;
+- scene 5's ledger `verdicts "HIGH 2"` → `", ".join(f"{k} {v}" ...)` over
+  `telegraph_stats.verdicts`.
+Also added `n_sources()` so London reads `1 source`, not `1 sources`.
+
+### Defects the full-resolution check caught and fixed before ship
+1. `/health` panel in the cold open clipped its last value → panel grown 300 → 332 px.
+2. Evidence-gate card carried a **~190 px** dead band (v2's fixed `BODY_BOT` height) → cards
+   now content-sized; the "why this matters" prose moved into the empty card as its `footer`.
+3. That first overflowed the body at 986 > 916 and the guard fired exactly as designed; the
+   footer restructure brought it back inside 916.
+4. Console card also carried a ~170 px dead band → `console_card()` now returns its own bottom;
+   `spark()` had to move onto `Frame`/`Measure` because the measuring pass has no draw surface.
+5. Money ledger strip was stretched to `BODY_BOT` for 60 px of content → sized to 96 px.
+6. Scene 2/3 near-duplicate sheet frames (the V-4 nit, reintroduced by my first picks) → one
+   frame per scene, money slot inside the 1.5× hold.
+7. Stale unreachable code from the pre-rewrite `scene_integrity` body survived the first edit →
+   removed, along with the now-unused `card_head` helper.
+
+### Verification
+- `ffprobe` **v3**: `duration=232.000000`, `1920x1080`, `h264`, `30/1`, `nb_frames=6960`,
+  `size=5084978`, `bit_rate=175344` — inside the 120–280 s gate.
+- **Zero audio streams** (`-an`), on purpose: no music in this build. The operator muxes a
+  licensed track later, outside this scope, and nothing here assumes one.
+- Frames decoded **out of the mp4**, not just the renderer: 74 s shows the complete five-report
+  card with no cut, 210 s shows `settlement detail — full ledger record` inside the 1.5× hold.
+- Determinism: two separate processes hashed all six `p=0.95` frames identically
+  (`0c99cde484a80a4350d1a043`). Same snapshot, no re-capture.
+- Ink audit over all six stills: every scene inside x∈[120,1800], y≤916, no dead bands left
+  under content.
+- Reveal counts `{0: 16, 1: 31, 2: 60, 3: 48, 4: 66, 5: 27}`.
+- `env -u PYTHONPATH .venv/bin/python -m pytest -q` → **`132 passed, 3 warnings in 9.33s`**.
+
+### For the next owner
+- `demo/SCRIPT-60s.md` and `demo/SHOTLIST.md` still describe the older 60 s judge cut (carried
+  over from V-3, still intentional).
+- `demo/screenshots/*.png` are re-rendered through the same code path as the video and now show
+  the v3 look; `demo/frames/montage-v5.png` is the contact sheet for the parent's vision gate.
+  This checkpoint does **not** self-score.
+- The v3 cut is the one to mux a licensed track onto; the video is silent by construction.
+- `history/receipts.jsonl` was dirty at session start (unrelated live ledger rows) and is
+  excluded from both commits — never `git add -A`.
+
+**Commits:** `feat(demo): V-5 — v1's motion on v2's console skin, v3 cut` (`d9ed4a5`), then this
+SPINE checkpoint.
